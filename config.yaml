@@ -1,0 +1,21 @@
+phrases:
+  - id: privet
+    text: Привет
+  - id: spasibo
+    text: Спасибо
+  - id: pozhaluysta
+    text: Пожалуйста
+  - id: kak_dela
+    text: Как дела?
+  - id: do_svidaniya
+    text: До свидания
+recognition:
+  neighbors: 3
+  max_distance: 0.75
+  min_margin: 0.08
+  min_frames: 8
+  max_frames: 96
+  target_frames: 32
+  sample_fps: 12
+  min_hand_ratio: 0.35
+  max_video_mb: 60

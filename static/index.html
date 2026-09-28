@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SignVision — жесты в текст</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header><div class="brand"><span class="mark">✳</span> SignVision <small>MVP · РЖЯ</small></div><span class="status" id="datasetStatus">Загрузка датасета…</span></header>
+  <main>
+    <section class="intro"><div class="eyebrow">КАМЕРА → КЛЮЧЕВЫЕ ТОЧКИ → ФРАЗА</div><h1>Покажите жест.<br><em>Получите текст.</em></h1><p>Запишите короткую последовательность с веб-камеры, соберите примеры фиксированных фраз и проверьте распознавание на отдельных видео.</p></section>
+    <div class="workspace">
+      <section class="panel camera-panel"><div class="panel-head"><h2>Камера</h2><span class="pill" id="cameraState">Отключена</span></div><div class="camera-wrap"><video id="preview" autoplay playsinline muted></video><div class="camera-placeholder" id="placeholder"><span>◎</span><strong>Камера готова к подключению</strong><small>Разрешите доступ в браузере</small></div><div class="record-badge" id="recordBadge">● ЗАПИСЬ <span id="timer">0:00</span></div></div><div class="controls"><button id="cameraButton" class="button secondary">Включить камеру</button><button id="recordButton" class="button primary" disabled>Начать запись</button><button id="stopButton" class="button danger" hidden>Завершить</button></div><p class="hint">Один жест на запись · 2–8 секунд · руки и плечи в кадре</p></section>
+      <section class="panel action-panel"><div class="panel-head"><h2>Результат</h2><span class="pill accent">DTW + kNN</span></div><div class="result" id="result"><span class="result-icon">✳</span><span class="result-caption">ОЖИДАНИЕ ЗАПИСИ</span><strong id="resultText">Здесь появится фраза</strong><small id="resultDetail">Начните с примеров для каждой фразы</small></div><div class="divider"></div><h3>Добавить пример</h3><p class="subtext">Выберите фразу и запишите её или загрузите готовое видео.</p><select id="phraseSelect"></select><div class="upload-row"><button id="saveButton" class="button secondary" disabled>Сохранить запись</button><label class="file-button">Загрузить видео<input type="file" id="sampleFile" accept="video/*" hidden></label></div><p class="feedback" id="feedback" role="status"></p></section>
+    </div>
+    <section class="panel catalog"><div class="panel-head"><div><h2>Фразы датасета</h2><p class="subtext">Для сравнения нужны несколько записей каждого жеста от разных людей и ракурсов.</p></div><span class="pill" id="totalCount">0 примеров</span></div><div id="phraseGrid" class="phrase-grid"></div></section>
+    <section class="panel evaluation"><div class="panel-head"><div><h2>Проверка на независимых видео</h2><p class="subtext">Выберите видео, которых нет в обучающем датасете, и укажите правильные метки.</p></div></div><div class="eval-tools"><input type="file" id="evalFiles" accept="video/*" multiple><button id="evalButton" class="button primary" disabled>Оценить</button></div><div id="evalLabels"></div><div id="evalResult" class="eval-result"></div></section>
+  </main>
+  <footer>SignVision · прототип фиксированных фраз · распознавание зависит от качества собранного датасета</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

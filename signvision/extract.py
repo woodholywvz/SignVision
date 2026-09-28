@@ -1,0 +1,71 @@
+"""OpenCV video decoding and MediaPipe Tasks landmark tracking."""
+from __future__ import annotations
+
+from contextlib import ExitStack
+from pathlib import Path
+import logging
+import cv2
+import numpy as np
+
+from .normalize import frame_features
+
+LOG = logging.getLogger(__name__)
+MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
+
+
+def extract_video(path: Path, sample_fps: int, max_frames: int) -> np.ndarray:
+    import mediapipe as mp
+
+    hand_model = MODEL_DIR / "hand_landmarker.task"
+    pose_model = MODEL_DIR / "pose_landmarker_lite.task"
+    if not hand_model.is_file() or not pose_model.is_file():
+        raise RuntimeError("Не найдены модели MediaPipe. Запустите: python -m signvision.models")
+
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise ValueError("Не удалось открыть видео. Используйте MP4 или WebM с поддерживаемым кодеком")
+    fps = capture.get(cv2.CAP_PROP_FPS)
+    fps = fps if np.isfinite(fps) and fps > 0 else float(sample_fps)
+    step = max(1, round(fps / sample_fps))
+    frames = []
+    try:
+        vision = mp.tasks.vision
+        with ExitStack() as stack:
+            hands = stack.enter_context(vision.HandLandmarker.create_from_options(
+                vision.HandLandmarkerOptions(
+                    base_options=mp.tasks.BaseOptions(model_asset_path=str(hand_model)),
+                    running_mode=vision.RunningMode.VIDEO, num_hands=2)))
+            pose = stack.enter_context(vision.PoseLandmarker.create_from_options(
+                vision.PoseLandmarkerOptions(
+                    base_options=mp.tasks.BaseOptions(model_asset_path=str(pose_model)),
+                    running_mode=vision.RunningMode.VIDEO, num_poses=1)))
+            index = 0
+            last_ms = -1
+            while len(frames) < max_frames:
+                ok, bgr = capture.read()
+                if not ok:
+                    break
+                if index % step:
+                    index += 1
+                    continue
+                timestamp_ms = max(last_ms + 1, round(index * 1000 / fps))
+                last_ms = timestamp_ms
+                index += 1
+                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
+                hand_result = hands.detect_for_video(image, timestamp_ms)
+                pose_result = pose.detect_for_video(image, timestamp_ms)
+                found = {}
+                for landmarks, categories in zip(hand_result.hand_landmarks, hand_result.handedness):
+                    if categories:
+                        side = categories[0].category_name
+                        if side in ("Left", "Right"):
+                            found[side] = landmarks
+                body = pose_result.pose_landmarks[0] if pose_result.pose_landmarks else None
+                frames.append(frame_features(found, body))
+    finally:
+        capture.release()
+    if not frames:
+        raise ValueError("В видео нет доступных кадров")
+    LOG.info("Извлечено %d кадров из %s", len(frames), path.name)
+    return np.stack(frames)
