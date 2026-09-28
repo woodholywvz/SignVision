@@ -8,6 +8,11 @@ let locale = ['ru', 'en'].includes(initialQuery) ? initialQuery :
 let stream, recorder, chunks = [], clip, startedAt, timerId, phrases = [], counts = {};
 let resultState = {phase: 'waiting'}, feedback = '', evalState = {phase: 'idle'};
 const t = (key, values = {}) => (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
+function countText(number, kind) {
+  const category = new Intl.PluralRules(locale).select(number);
+  const ending = category === 'one' ? 'One' : category === 'few' ? 'Few' : 'Many';
+  return `${number} ${t(kind + ending)}`;
+}
 const phraseName = id => id === 'unknown' ? t('unknown') : (() => {
   const phrase = phrases.find(item => item.id === id);
   return phrase ? (locale === 'en' ? phrase.en || phrase.text : phrase.text) : id;
@@ -30,13 +35,13 @@ function options(select, includeUnknown = false, selected) {
 }
 function renderCatalog() {
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-  $('datasetStatus').textContent = t('datasetCount', {n: total});
-  $('totalCount').textContent = t('exampleCount', {n: total});
+  $('datasetStatus').textContent = t('datasetCount', {count: countText(total, 'example')});
+  $('totalCount').textContent = countText(total, 'example');
   $('phraseGrid').replaceChildren(...phrases.map((phrase, index) => {
     const card = document.createElement('div'); card.className = 'phrase-card';
     const number = document.createElement('span'); number.className = 'card-index'; number.textContent = String(index + 1).padStart(2, '0') + ' / ' + String(phrases.length).padStart(2, '0');
     const title = document.createElement('strong'); title.textContent = phraseName(phrase.id);
-    const count = document.createElement('small'); count.textContent = t('cardCount', {n: counts[phrase.id] || 0});
+    const count = document.createElement('small'); count.textContent = countText(counts[phrase.id] || 0, 'recording');
     card.append(number, title, count); return card;
   }));
 }
@@ -83,6 +88,7 @@ function renderEvaluation() {
 function applyLocale() {
   document.documentElement.lang = locale; document.title = t('title');
   document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach(element => element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)));
   document.querySelectorAll('.lang-switch button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.lang === locale)));
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
   const selected = $('phraseSelect').value; options($('phraseSelect'), false, selected);
@@ -93,6 +99,8 @@ function applyLocale() {
 document.querySelectorAll('.lang-switch button').forEach(button => button.addEventListener('click', () => {
   locale = button.dataset.lang;
   try { localStorage.setItem('signvision.language', locale); } catch (_) { /* private browsing */ }
+  const nextUrl = new URL(location.href); nextUrl.searchParams.set('lang', locale);
+  history.replaceState(null, '', nextUrl);
   applyLocale();
 }));
 async function refresh() {

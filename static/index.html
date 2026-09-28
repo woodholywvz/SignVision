@@ -11,7 +11,7 @@
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="/" aria-label="SignVision"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><span>sign<span class="brand-italic">vision</span></span></a>
-      <div class="header-actions"><span class="header-edition" data-i18n="edition">Лаборатория жестов / MVP</span><div class="lang-switch" role="group" aria-label="Language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div></div>
+      <div class="header-actions"><span class="header-edition" data-i18n="edition">Лаборатория жестов / MVP</span><div class="lang-switch" role="group" aria-label="Язык" data-i18n-aria-label="language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div></div>
     </div>
   </header>
   <main>
@@ -24,7 +24,7 @@
           <a class="hero-link" href="#studio"><span data-i18n="openStudio">Открыть студию</span><span aria-hidden="true">↗</span></a>
         </div>
         <div class="hero-visual" aria-hidden="true">
-          <div class="visual-top"><span>SV / TRACKING GRID</span><span class="visual-live"><b></b>LIVE SYSTEM</span></div>
+          <div class="visual-top"><span data-i18n="trackingGrid">SV / СЕТКА ТОЧЕК</span><span class="visual-live"><b></b><span data-i18n="liveSystem">СИСТЕМА АКТИВНА</span></span></div>
           <div class="visual-grid"></div><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
           <svg class="hand-graphic" viewBox="0 0 420 440" fill="none" xmlns="http://www.w3.org/2000/svg">
             <g stroke="#afe7bd" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -34,18 +34,18 @@
             <g fill="#d5f8ba"><circle cx="99" cy="155" r="5"/><circle cx="151" cy="49" r="5"/><circle cx="207" cy="26" r="5"/><circle cx="262" cy="43" r="5"/><circle cx="313" cy="105" r="5"/><circle cx="211" cy="239" r="6"/><circle cx="211" cy="367" r="6"/></g>
             <g fill="#9be9b4"><circle cx="126" cy="169" r="4"/><circle cx="160" cy="207" r="4"/><circle cx="182" cy="141" r="4"/><circle cx="190" cy="89" r="4"/><circle cx="223" cy="92" r="4"/><circle cx="226" cy="178" r="4"/><circle cx="273" cy="103" r="4"/><circle cx="261" cy="188" r="4"/><circle cx="314" cy="149" r="4"/><circle cx="291" cy="230" r="4"/><circle cx="187" cy="248" r="4"/></g>
           </svg>
-          <div class="visual-left-label">21 POINTS<br>PER HAND</div><div class="visual-right-label">X 0.64<br>Y 0.38<br>Z 0.12</div>
-          <div class="visual-bottom"><span>HAND LANDMARKS</span><span>◌&nbsp; ◌&nbsp; ◌</span><span>POSE MODEL / 33</span></div>
+          <div class="visual-left-label" data-i18n="pointsPerHand">21 ТОЧКА<br>НА РУКУ</div><div class="visual-right-label">X 0.64<br>Y 0.38<br>Z 0.12</div>
+          <div class="visual-bottom"><span data-i18n="handLandmarks">ТОЧКИ КИСТИ</span><span>◌&nbsp; ◌&nbsp; ◌</span><span data-i18n="poseModel">МОДЕЛЬ ТЕЛА / 33</span></div>
         </div>
       </div>
       <div class="hero-bottom"><span data-i18n="heroFooterLeft">Веб-камера → ключевые точки → фраза</span><span>MEDIAPIPE&nbsp; / &nbsp;OPENCV&nbsp; / &nbsp;DTW + kNN</span></div>
     </section>
 
     <section class="studio section-shell" id="studio">
-      <div class="section-heading"><div><span class="section-index">01 / LIVE STUDIO</span><h2 data-i18n="studioTitle">Студия жестов</h2><p data-i18n="studioDescription">Один жест за запись. Держите руки и плечи в кадре в течение 2–8 секунд.</p></div><div class="dataset-indicator"><span class="indicator-dot"></span><span id="datasetStatus" aria-live="polite">Загрузка датасета…</span></div></div>
+      <div class="section-heading"><div><span class="section-index" data-i18n="studioIndex">01 / СТУДИЯ</span><h2 data-i18n="studioTitle">Студия жестов</h2><p data-i18n="studioDescription">Один жест за запись. Держите руки и плечи в кадре в течение 2–8 секунд.</p></div><div class="dataset-indicator"><span class="indicator-dot"></span><span id="datasetStatus" aria-live="polite">Загрузка датасета…</span></div></div>
       <div class="workspace">
         <section class="panel camera-panel"><div class="panel-top"><span class="panel-kicker"><span class="panel-number">A</span><span data-i18n="camera">Камера</span></span><span class="camera-state" id="cameraState" data-i18n="cameraOff">Отключена</span></div>
-          <div class="camera-wrap"><video id="preview" autoplay playsinline muted></video><div class="camera-placeholder" id="placeholder"><div class="placeholder-orbit"><span>◎</span></div><strong data-i18n="cameraReady">Ожидание камеры</strong><small data-i18n="cameraPermission">Разрешите доступ в браузере</small></div><div class="camera-corner corner-tl"></div><div class="camera-corner corner-tr"></div><div class="camera-corner corner-bl"></div><div class="camera-corner corner-br"></div><div class="record-badge" id="recordBadge"><span class="record-dot"></span><span data-i18n="recording">ЗАПИСЬ</span><span id="timer">0:00</span></div><div class="camera-overlay"><span>CAM 01 / RGB</span><span>●&nbsp; TRACKING</span></div></div>
+          <div class="camera-wrap"><video id="preview" autoplay playsinline muted></video><div class="camera-placeholder" id="placeholder"><div class="placeholder-orbit"><span>◎</span></div><strong data-i18n="cameraReady">Ожидание камеры</strong><small data-i18n="cameraPermission">Разрешите доступ в браузере</small></div><div class="camera-corner corner-tl"></div><div class="camera-corner corner-tr"></div><div class="camera-corner corner-bl"></div><div class="camera-corner corner-br"></div><div class="record-badge" id="recordBadge"><span class="record-dot"></span><span data-i18n="recording">ЗАПИСЬ</span><span id="timer">0:00</span></div><div class="camera-overlay"><span data-i18n="cameraChannel">КАМЕРА 01 / RGB</span><span data-i18n="trackingStatus">●&nbsp; ОТСЛЕЖИВАНИЕ</span></div></div>
           <div class="controls"><button id="cameraButton" class="button button-quiet" data-i18n="enableCamera">Включить камеру</button><button id="recordButton" class="button button-primary" data-i18n="startRecording" disabled>Начать запись</button><button id="stopButton" class="button button-danger" data-i18n="stopRecording" hidden>Завершить</button></div>
         </section>
         <section class="panel result-panel"><div class="panel-top"><span class="panel-kicker"><span class="panel-number">B</span><span data-i18n="interpretation">Интерпретация</span></span><span class="tech-tag">DTW + kNN</span></div>
@@ -55,9 +55,9 @@
       </div>
     </section>
 
-    <section class="catalog section-shell"><div class="section-heading"><div><span class="section-index">02 / DATASET</span><h2 data-i18n="phrasesTitle">Фразы в коллекции</h2><p data-i18n="phrasesDescription">Несколько записей каждой фразы от разных людей помогут системе различать жесты.</p></div><span class="count-chip" id="totalCount">0 примеров</span></div><div id="phraseGrid" class="phrase-grid"></div></section>
+    <section class="catalog section-shell"><div class="section-heading"><div><span class="section-index" data-i18n="datasetIndex">02 / ДАТАСЕТ</span><h2 data-i18n="phrasesTitle">Фразы в коллекции</h2><p data-i18n="phrasesDescription">Несколько записей каждой фразы от разных людей помогут системе различать жесты.</p></div><span class="count-chip" id="totalCount">0 примеров</span></div><div id="phraseGrid" class="phrase-grid"></div></section>
 
-    <section class="evaluation section-shell"><div class="section-heading"><div><span class="section-index">03 / VALIDATION</span><h2 data-i18n="evaluationTitle">Проверьте точность</h2><p data-i18n="evaluationDescription">Загрузите отдельные видео, которых нет в обучающем датасете, и укажите верные метки.</p></div><div class="eval-ornament" aria-hidden="true">↗</div></div><div class="eval-card"><div class="eval-tools"><label class="eval-file-label"><span data-i18n="chooseVideos">Выбрать видео</span><input type="file" id="evalFiles" accept="video/*" multiple></label><button id="evalButton" class="button button-primary" data-i18n="evaluate" disabled>Оценить</button></div><div id="evalLabels"></div><div id="evalResult" class="eval-result" aria-live="polite"></div></div></section>
+    <section class="evaluation section-shell"><div class="section-heading"><div><span class="section-index" data-i18n="validationIndex">03 / ПРОВЕРКА</span><h2 data-i18n="evaluationTitle">Проверьте точность</h2><p data-i18n="evaluationDescription">Загрузите отдельные видео, которых нет в обучающем датасете, и укажите верные метки.</p></div><div class="eval-ornament" aria-hidden="true">↗</div></div><div class="eval-card"><div class="eval-tools"><label class="eval-file-label"><span data-i18n="chooseVideos">Выбрать видео</span><input type="file" id="evalFiles" accept="video/*" multiple></label><button id="evalButton" class="button button-primary" data-i18n="evaluate" disabled>Оценить</button></div><div id="evalLabels"></div><div id="evalResult" class="eval-result" aria-live="polite"></div></div></section>
   </main>
   <footer><div class="footer-inner"><span class="footer-brand">signvision <b>✳</b></span><span data-i18n="footerText">Прототип фиксированных фраз РЖЯ. Качество зависит от датасета.</span><span>© 2026</span></div></footer>
   <script src="/static/i18n.js"></script><script src="/static/app.js"></script>
