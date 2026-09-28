@@ -14,6 +14,10 @@ ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 class Phrase:
     id: str
     text: str
+    en: str | None = None
+
+    def localized(self, locale: str) -> str:
+        return self.en if locale == "en" and self.en else self.text
 
 
 @dataclass(frozen=True)
@@ -41,7 +45,8 @@ def load_settings(path: Path = ROOT / "config.yaml") -> Settings:
     phrases = tuple(Phrase(**item) for item in raw["phrases"])
     if not phrases or len({p.id for p in phrases}) != len(phrases):
         raise ValueError("Список фраз должен быть непустым, ID должны быть уникальны")
-    if any(not ID_PATTERN.fullmatch(p.id) or not p.text.strip() for p in phrases):
+    if any(not ID_PATTERN.fullmatch(p.id) or not p.text.strip() or
+           (p.en is not None and not p.en.strip()) for p in phrases):
         raise ValueError("Неверный ID или текст фразы")
     r = raw["recognition"]
     settings = Settings(phrases=phrases, **r)

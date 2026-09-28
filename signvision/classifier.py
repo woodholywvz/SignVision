@@ -61,7 +61,7 @@ def dtw_distance(a: np.ndarray, b: np.ndarray, radius: int | None = None) -> flo
 def classify(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], *, neighbors: int,
              max_distance: float, min_margin: float, target_frames: int = 32) -> Prediction:
     if not samples:
-        return Prediction(None, None, None, "Датасет пуст")
+        return Prediction(None, None, None, "empty_dataset")
     query = resample_sequence(sequence, target_frames)
     ranked = sorted((dtw_distance(query, resample_sequence(data, target_frames)), label) for label, data in samples)
     nearest = ranked[:max(1, neighbors)]
@@ -73,7 +73,7 @@ def classify(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], *, nei
     other = min((distance for distance, label in ranked if label != winner), default=None)
     margin = None if other is None else other - best
     if best > max_distance:
-        return Prediction(None, best, margin, "Слишком далеко от известных жестов")
+        return Prediction(None, best, margin, "too_far")
     if margin is not None and margin < min_margin:
-        return Prediction(None, best, margin, "Недостаточный отрыв от других фраз")
-    return Prediction(winner, best, margin, "Распознано")
+        return Prediction(None, best, margin, "ambiguous")
+    return Prediction(winner, best, margin, "recognized")
