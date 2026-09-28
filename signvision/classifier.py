@@ -59,11 +59,11 @@ def dtw_distance(a: np.ndarray, b: np.ndarray, radius: int | None = None) -> flo
 
 
 def classify(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], *, neighbors: int,
-             max_distance: float, min_margin: float) -> Prediction:
+             max_distance: float, min_margin: float, target_frames: int = 32) -> Prediction:
     if not samples:
         return Prediction(None, None, None, "Датасет пуст")
-    query = resample_sequence(sequence, 32)
-    ranked = sorted((dtw_distance(query, resample_sequence(data, 32)), label) for label, data in samples)
+    query = resample_sequence(sequence, target_frames)
+    ranked = sorted((dtw_distance(query, resample_sequence(data, target_frames)), label) for label, data in samples)
     nearest = ranked[:max(1, neighbors)]
     votes: dict[str, list[float]] = {}
     for distance, label in nearest:

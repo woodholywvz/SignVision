@@ -78,7 +78,8 @@ async def add_sample(video: UploadFile = File(...), phrase_id: str = Form(...)):
 
 def prediction_payload(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]]):
     result = classify(sequence, samples, neighbors=settings.neighbors,
-                      max_distance=settings.max_distance, min_margin=settings.min_margin)
+                      max_distance=settings.max_distance, min_margin=settings.min_margin,
+                      target_frames=settings.target_frames)
     phrase = settings.phrase(result.phrase_id) if result.phrase_id else None
     return {"phrase_id": result.phrase_id, "text": phrase.text if phrase else "Неизвестный жест",
             "distance": result.distance, "margin": result.margin, "reason": result.reason,

@@ -11,8 +11,8 @@ phrases:
     text: До свидания
 recognition:
   neighbors: 3
-  max_distance: 0.75
-  min_margin: 0.08
+  max_distance: 0.30
+  min_margin: 0.05
   min_frames: 8
   max_frames: 96
   target_frames: 32
