@@ -4,9 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import logging
+import asyncio
+from urllib.parse import urlsplit
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +18,7 @@ from .config import ROOT, load_settings
 from .extract import extract_video
 from .normalize import hand_present
 from .storage import Dataset
+from .tracking import LandmarkTracker, MAX_FRAME_BYTES
 
 settings = load_settings()
 dataset = Dataset(ROOT / "data")
@@ -94,8 +98,8 @@ async def process(upload: UploadFile, locale: str = "ru") -> np.ndarray:
                     temporary.write(chunk)
             finally:
                 await upload.close()
-        sequence = extract_video(path, settings.sample_fps, settings.max_frames)
-    except (ValueError, RuntimeError) as exc:
+        sequence = await run_in_threadpool(extract_video, path, settings.sample_fps, settings.max_frames)
+    except (ValueError, RuntimeError, FileNotFoundError) as exc:
         LOG.exception("Ошибка обработки видео")
         raise HTTPException(422, message(locale, "bad_video")) from exc
     finally:
@@ -104,6 +108,44 @@ async def process(upload: UploadFile, locale: str = "ru") -> np.ndarray:
     if len(sequence) < settings.min_frames or ratio < settings.min_hand_ratio:
         raise HTTPException(422, message(locale, "low_signal", frames=len(sequence), ratio=ratio))
     return sequence
+
+
+@app.websocket("/api/track")
+async def live_tracking(socket: WebSocket):
+    """One tracker per connection. Each frame is acknowledged before the next is sent."""
+    origin = socket.headers.get("origin")
+    if origin and urlsplit(origin).netloc != socket.headers.get("host"):
+        await socket.close(code=1008)
+        return
+    await socket.accept()
+    tracker = None
+    try:
+        tracker = await run_in_threadpool(LandmarkTracker)
+        await socket.send_json({"type": "ready"})
+        while True:
+            data = await asyncio.wait_for(socket.receive_bytes(), timeout=30)
+            if len(data) > MAX_FRAME_BYTES:
+                await socket.send_json({"type": "error", "code": "invalid_frame"})
+                await socket.close(code=1009)
+                return
+            result = await run_in_threadpool(tracker.track_jpeg, data)
+            await socket.send_json(result)
+    except WebSocketDisconnect:
+        pass
+    except (FileNotFoundError, ValueError, asyncio.TimeoutError) as exc:
+        code = "missing_models" if isinstance(exc, FileNotFoundError) else "tracking_timeout" if isinstance(exc, asyncio.TimeoutError) else "invalid_frame"
+        await socket.send_json({"type": "error", "code": code})
+        await socket.close(code=1011)
+    except Exception:
+        LOG.exception("Live landmark tracking failed")
+        try:
+            await socket.send_json({"type": "error", "code": "tracking_failed"})
+            await socket.close(code=1011)
+        except (RuntimeError, WebSocketDisconnect):
+            pass
+    finally:
+        if tracker is not None:
+            await run_in_threadpool(tracker.close)
 
 
 @app.post("/api/samples")

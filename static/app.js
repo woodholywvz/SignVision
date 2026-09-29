@@ -7,6 +7,11 @@ let locale = ['ru', 'en'].includes(initialQuery) ? initialQuery :
   (['ru', 'en'].includes(savedLanguage) ? savedLanguage : (navigator.language || 'ru').toLowerCase().startsWith('ru') ? 'ru' : 'en');
 let stream, recorder, chunks = [], clip, startedAt, timerId, phrases = [], counts = {};
 let resultState = {phase: 'waiting'}, feedback = '', evalState = {phase: 'idle'};
+let busy = false, cameraStarting = false, cameraRequest = 0;
+let trackState = null;
+const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), state => {
+  trackState = state; renderTracking();
+});
 const t = (key, values = {}) => (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 function countText(number, kind) {
   const category = new Intl.PluralRules(locale).select(number);
@@ -38,8 +43,11 @@ function renderCatalog() {
   $('datasetStatus').textContent = t('datasetCount', {count: countText(total, 'example')});
   $('totalCount').textContent = countText(total, 'example');
   $('phraseGrid').replaceChildren(...phrases.map((phrase, index) => {
-    const card = document.createElement('div'); card.className = 'phrase-card';
-    const number = document.createElement('span'); number.className = 'card-index'; number.textContent = String(index + 1).padStart(2, '0') + ' / ' + String(phrases.length).padStart(2, '0');
+    const card = document.createElement('button'); card.type = 'button'; card.className = 'phrase-card';
+    card.classList.toggle('selected', $('phraseSelect').value === phrase.id);
+    card.setAttribute('aria-pressed', String($('phraseSelect').value === phrase.id));
+    card.onclick = () => { $('phraseSelect').value = phrase.id; renderCatalog(); };
+    const number = document.createElement('span'); number.className = 'card-index'; number.textContent = String(index + 1).padStart(2, '0');
     const title = document.createElement('strong'); title.textContent = phraseName(phrase.id);
     const count = document.createElement('small'); count.textContent = countText(counts[phrase.id] || 0, 'recording');
     card.append(number, title, count); return card;
@@ -91,10 +99,12 @@ function applyLocale() {
   document.querySelectorAll('[data-i18n-aria-label]').forEach(element => element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)));
   document.querySelectorAll('.lang-switch button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.lang === locale)));
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
+  $('cameraState').classList.toggle('connected', !!stream);
   const selected = $('phraseSelect').value; options($('phraseSelect'), false, selected);
   document.querySelectorAll('#evalLabels select').forEach(select => options(select, true, select.value));
   if (phrases.length) renderCatalog(); else $('datasetStatus').textContent = t('loadingDataset');
-  $('feedback').textContent = feedback; renderResult(); renderEvaluation();
+  $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
+  $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking();
 }
 document.querySelectorAll('.lang-switch button').forEach(button => button.addEventListener('click', () => {
   locale = button.dataset.lang;
@@ -108,16 +118,84 @@ async function refresh() {
   const config = await response.json(); phrases = config.phrases; counts = config.counts;
   applyLocale();
 }
-function setFeedback(text) { feedback = text; $('feedback').textContent = text; }
-$('cameraButton').addEventListener('click', async () => {
+function setFeedback(text, error = false) { feedback = text; $('feedback').textContent = text; $('feedback').classList.toggle('error', error); }
+function renderControls() {
+  const recording = recorder?.state === 'recording';
+  $('cameraButton').hidden = !!stream;
+  $('cameraButton').disabled = busy || cameraStarting;
+  $('recordButton').hidden = !stream || recording;
+  $('recordButton').disabled = !stream || busy;
+  $('stopButton').hidden = !recording;
+  $('cameraOffButton').hidden = !stream;
+  $('cameraOffButton').disabled = recording;
+  $('saveButton').disabled = !clip || busy;
+  $('useRecordingButton').hidden = !clip;
+  $('evalButton').disabled = busy || !$('evalFiles').files.length;
+  $('sampleFile').disabled = busy; $('evalFiles').disabled = busy;
+  $('trackButton').disabled = cameraStarting;
+  $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
+  $('cameraState').classList.toggle('connected', !!stream);
+  $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
+}
+function renderTracking() {
+  $('trackButton').setAttribute('aria-pressed', String(tracker.active));
+  $('trackButtonText').textContent = t(tracker.active ? 'hideJoints' : 'checkJoints');
+  $('trackingInfo').hidden = !trackState;
+  $('trackStatus').textContent = trackState ? t(trackState.key) : '';
+  $('trackingStats').textContent = trackState?.hands !== undefined ? t('trackingStats', {hands: trackState.hands, fps: trackState.fps}) : '';
+}
+async function startCamera() {
+  if (stream) return true;
+  if (cameraStarting) return false;
+  const request = ++cameraRequest; cameraStarting = true; renderControls();
   try {
-    stream = await navigator.mediaDevices.getUserMedia({video: {width: 960, height: 720}, audio: false});
+    if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error(), {name: 'UnsupportedCamera'});
+    const acquired = await navigator.mediaDevices.getUserMedia({video: {width: {ideal: 960}, height: {ideal: 720}}, audio: false});
+    if (request !== cameraRequest) { acquired.getTracks().forEach(track => track.stop()); return false; }
+    stream = acquired;
     $('preview').srcObject = stream; $('placeholder').hidden = true;
-    $('cameraState').textContent = t('cameraOn'); $('recordButton').disabled = false; $('cameraButton').hidden = true;
+    await $('preview').play();
+    stream.getVideoTracks()[0].addEventListener('ended', stopCamera);
     setFeedback('');
-  } catch (error) { setFeedback(t('cameraUnavailable', {error: error.message})); }
+    return true;
+  } catch (error) {
+    stopCamera();
+    const key = {NotAllowedError:'cameraDenied',NotFoundError:'cameraMissing',NotReadableError:'cameraBusy',UnsupportedCamera:'cameraUnsupported'}[error.name] || 'cameraFailed';
+    setFeedback(t(key), true); return false;
+  } finally { cameraStarting = false; renderControls(); }
+}
+function stopCamera() {
+  cameraRequest += 1;
+  if (recorder?.state === 'recording') recorder.stop();
+  tracker.stop(); trackState = null; renderTracking();
+  if (stream) stream.getTracks().forEach(track => track.stop());
+  stream = null; $('preview').srcObject = null; $('placeholder').hidden = false;
+  renderControls();
+}
+function setPanel(name) {
+  if (recorder?.state === 'recording') { setFeedback(t('finishRecordingFirst')); return; }
+  if (name !== 'studio') stopCamera();
+  document.querySelectorAll('[data-panel]').forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
+  document.querySelectorAll('[data-tab]').forEach(button => {
+    const selected = button.dataset.tab === name; button.classList.toggle('active', selected);
+    if (selected) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  });
+}
+document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => setPanel(button.dataset.tab));
+document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => setPanel(button.dataset.go));
+$('phraseSelect').addEventListener('change', renderCatalog);
+$('useRecordingButton').onclick = () => setPanel('dataset');
+$('cameraButton').addEventListener('click', startCamera);
+$('cameraOffButton').addEventListener('click', stopCamera);
+$('trackButton').addEventListener('click', async () => {
+  if (tracker.active) { tracker.stop(); trackState = null; renderTracking(); return; }
+  if (await startCamera()) tracker.start();
 });
+window.addEventListener('pagehide', stopCamera);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { tracker.stop(); trackState = null; renderTracking(); } });
 $('recordButton').addEventListener('click', () => {
+  if (!stream || busy) return;
+  if (!window.MediaRecorder) { setFeedback(t('unsupportedRecording'), true); return; }
   const mime = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type));
   if (!mime) { setFeedback(t('unsupportedRecording')); return; }
   chunks = []; clip = null; $('saveButton').disabled = true; startedAt = Date.now();
@@ -126,15 +204,16 @@ $('recordButton').addEventListener('click', () => {
   recorder.onstop = async () => {
     clip = new Blob(chunks, {type: mime}); $('saveButton').disabled = false;
     $('recordBadge').classList.remove('visible'); clearInterval(timerId);
-    $('stopButton').hidden = true; $('recordButton').hidden = false;
+    busy = true; renderControls();
     const form = new FormData(); form.append('video', clip, `gesture.${mime.includes('mp4') ? 'mp4' : 'webm'}`);
     resultState = {phase: 'processing'}; renderResult();
     try {
       const prediction = await api('/api/recognize', form);
       resultState = {phase: prediction.phrase_id ? 'recognized' : 'unknown', prediction}; renderResult();
     } catch (error) { resultState = {phase: 'error', error: error.message}; renderResult(); }
+    finally { busy = false; renderControls(); }
   };
-  recorder.start(); $('recordBadge').classList.add('visible'); $('recordButton').hidden = true; $('stopButton').hidden = false;
+  recorder.start(); $('timer').textContent = '0:00'; $('recordBadge').classList.add('visible'); renderControls();
   timerId = setInterval(() => {
     const seconds = Math.floor((Date.now() - startedAt) / 1000);
     $('timer').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -143,18 +222,21 @@ $('recordButton').addEventListener('click', () => {
 });
 $('stopButton').addEventListener('click', () => { if (recorder?.state === 'recording') recorder.stop(); });
 $('saveButton').addEventListener('click', async () => {
-  if (!clip) return;
+  if (!clip || busy) return;
   const form = new FormData(); form.append('phrase_id', $('phraseSelect').value);
   form.append('video', clip, `sample.${clip.type.includes('mp4') ? 'mp4' : 'webm'}`);
+  busy = true; renderControls();
   try { setFeedback(t('saving')); const data = await api('/api/samples', form); counts = data.counts; renderCatalog(); setFeedback(t('saved', {n: data.frames})); }
-  catch (error) { setFeedback(error.message); }
+  catch (error) { setFeedback(error.message, true); }
+  finally { busy = false; renderControls(); }
 });
 $('sampleFile').addEventListener('change', async event => {
-  const file = event.target.files[0]; if (!file) return;
+  const file = event.target.files[0]; if (!file || busy) return;
   const form = new FormData(); form.append('phrase_id', $('phraseSelect').value); form.append('video', file);
+  busy = true; renderControls();
   try { setFeedback(t('uploading')); const data = await api('/api/samples', form); counts = data.counts; renderCatalog(); setFeedback(t('uploaded', {n: data.frames})); }
-  catch (error) { setFeedback(error.message); }
-  finally { event.target.value = ''; }
+  catch (error) { setFeedback(error.message, true); }
+  finally { event.target.value = ''; busy = false; renderControls(); }
 });
 $('evalFiles').addEventListener('change', event => {
   $('evalLabels').replaceChildren(...Array.from(event.target.files).map((file, index) => {
@@ -163,16 +245,17 @@ $('evalFiles').addEventListener('change', event => {
     const select = document.createElement('select'); select.dataset.index = index; select.setAttribute('aria-label', file.name);
     options(select, true); row.append(name, select); return row;
   }));
-  $('evalButton').disabled = !event.target.files.length; evalState = {phase: 'idle'}; renderEvaluation();
+  renderControls(); evalState = {phase: 'idle'}; renderEvaluation();
 });
 $('evalButton').addEventListener('click', async () => {
+  if (busy) return;
   const files = Array.from($('evalFiles').files); if (!files.length) { evalState = {phase: 'error', error: t('noVideos')}; renderEvaluation(); return; }
   const form = new FormData(); files.forEach((file, index) => {
     form.append('videos', file); form.append('phrase_ids', $('evalLabels').querySelector(`select[data-index="${index}"]`).value);
   });
-  evalState = {phase: 'loading'}; renderEvaluation();
+  busy = true; renderControls(); evalState = {phase: 'loading'}; renderEvaluation();
   try { evalState = {phase: 'done', data: await api('/api/evaluate', form)}; }
   catch (error) { evalState = {phase: 'error', error: error.message}; }
-  renderEvaluation();
+  busy = false; renderControls(); renderEvaluation();
 });
-applyLocale(); refresh().catch(error => setFeedback(error.message));
+applyLocale(); renderControls(); refresh().catch(error => setFeedback(error.message, true));
