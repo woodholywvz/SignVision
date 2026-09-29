@@ -58,15 +58,21 @@ function renderCatalog() {
   }));
 }
 function renderResult() {
-  const {phase, prediction, error} = resultState;
+  const {prediction, error} = resultState;
+  const noExamples = phrases.length > 0 && !Object.values(counts).some(Boolean);
+  const phase = resultState.phase === 'waiting' && noExamples ? 'empty' : resultState.phase;
   $('result').classList.toggle('is-unknown', phase === 'unknown' || phase === 'error');
   $('result').classList.toggle('is-tentative', phase === 'tentative');
   const caption = phase === 'empty' ? 'emptyDatasetState' : phase === 'tentative' ? 'tentativeState' : phase === 'listening' ? 'liveState' :
     phase === 'recognized' ? 'recognized' : phase === 'unknown' ? 'unknownState' :
     phase === 'processing' ? 'processing' : phase === 'error' ? 'errorState' : 'waiting';
   $('resultCaption').textContent = t(caption);
+  const action = $('resultActionButton');
+  action.hidden = phase !== 'empty';
+  action.textContent = t(window.SignVisionLearning?.isAdmin() ? 'addReferencesAction' : 'browseLessonsAction');
   if (phase === 'empty') {
-    $('resultText').textContent = t('liveEmpty'); $('resultDetail').textContent = t('liveEmptyHint');
+    $('resultText').textContent = t('liveEmpty');
+    $('resultDetail').textContent = t(window.SignVisionLearning?.isAdmin() ? 'liveEmptyHint' : 'liveEmptyStudentHint');
   } else if (phase === 'listening') {
     $('resultText').textContent = t('liveListening'); $('resultDetail').textContent = t('liveListeningHint');
   } else if (phase === 'tentative') {
@@ -139,7 +145,7 @@ function renderControls() {
   $('cameraButton').disabled = busy || cameraStarting;
   $('recordButton').hidden = !stream || recording;
   $('recordButton').disabled = !stream || busy || live;
-  $('liveButton').disabled = busy || recording || cameraStarting;
+  $('liveButton').disabled = busy || recording || cameraStarting || (phrases.length > 0 && !Object.values(counts).some(Boolean));
   $('liveButton').setAttribute('aria-pressed', String(live));
   $('liveButton').textContent = t(live ? 'stopLive' : 'startLive');
   $('stopButton').hidden = !recording;
@@ -191,9 +197,11 @@ function stopCamera() {
   stream = null; $('preview').srcObject = null; $('placeholder').hidden = false;
   renderControls();
 }
-function setPanel(name) {
+function setPanel(name, fromHistory = false) {
   if (recorder?.state === 'recording') { setFeedback(t('finishRecordingFirst')); return; }
-  if (name === 'admin' && !window.SignVisionLearning?.isAdmin()) return;
+  if (!['studio', 'dataset', 'lessons', 'evaluation', 'admin', 'account'].includes(name)) name = 'studio';
+  if (name === 'admin' && !window.SignVisionLearning?.isAdmin()) name = 'account';
+  const current = document.querySelector('[data-panel]:not([hidden])')?.dataset.panel;
   if (name !== 'studio') stopCamera();
   document.querySelectorAll('[data-panel]').forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
   document.querySelectorAll('[data-tab]').forEach(button => {
@@ -201,11 +209,21 @@ function setPanel(name) {
     if (selected) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
   });
   window.SignVisionLearning?.onPanel(name);
+  if (current !== name) {
+    if (!fromHistory) {
+      const url = new URL(location.href);
+      if (name === 'studio') url.searchParams.delete('tab'); else url.searchParams.set('tab', name);
+      history.pushState(null, '', url);
+    }
+    window.scrollTo(0, 0);
+  }
 }
 document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => setPanel(button.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => setPanel(button.dataset.go));
+window.addEventListener('popstate', () => setPanel(new URLSearchParams(location.search).get('tab') || 'studio', true));
 $('phraseSelect').addEventListener('change', renderCatalog);
 $('useRecordingButton').onclick = () => setPanel('dataset');
+$('resultActionButton').onclick = () => setPanel(window.SignVisionLearning?.isAdmin() ? 'dataset' : 'lessons');
 $('cameraButton').addEventListener('click', startCamera);
 $('cameraOffButton').addEventListener('click', stopCamera);
 $('trackButton').addEventListener('click', async () => {

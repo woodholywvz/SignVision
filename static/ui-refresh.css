@@ -1,0 +1,275 @@
+:root {
+  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+  --ui-bg: #f6f8f5;
+  --ui-surface: #fff;
+  --ui-soft: #eef3ee;
+  --ui-ink: #1e2c24;
+  --ui-muted: #586b5f;
+  --ui-line: #dce6dd;
+  --ui-accent: #245f43;
+  --ui-accent-hover: #194a33;
+  --ui-accent-soft: #e7f1e8;
+  --ui-shadow: 0 1px 2px rgb(27 50 33 / 5%);
+  --green: var(--ui-accent);
+  --muted: var(--ui-muted);
+  --border: var(--ui-line);
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--ui-bg); color: var(--ui-ink); line-height: 1.5; }
+button, input, select, textarea { font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible {
+  outline: 3px solid #5da67d;
+  outline-offset: 3px;
+}
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 100;
+  padding: 10px 14px;
+  background: var(--ui-ink);
+  color: var(--ui-surface);
+  border-radius: 8px;
+}
+.skip-link:focus { top: 12px; }
+
+.site-header { background: var(--ui-surface); border-color: var(--ui-line); }
+.header-inner, .app-shell { max-width: 1280px; padding-left: 36px; padding-right: 36px; }
+.header-inner { height: 76px; }
+.brand { color: var(--ui-ink); font-size: 25px; letter-spacing: -.9px; }
+.brand-caption { color: var(--ui-muted); font-size: 13px; }
+.header-action {
+  min-height: 38px;
+  padding: 8px 12px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  border-color: var(--ui-line);
+  font-size: 13px;
+}
+.header-action:hover { background: var(--ui-soft); }
+.lang-switch { background: var(--ui-soft); }
+.lang-switch button { font-size: 12px; min-width: 34px; }
+
+.tabs {
+  gap: 8px;
+  min-height: 72px;
+  border-color: var(--ui-line);
+}
+.tab {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ui-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.tab:hover { background: var(--ui-soft); color: var(--ui-ink); }
+.tab.active, .tab[aria-current="page"] {
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  border-color: #c8decb;
+  font-weight: 650;
+}
+.dataset-status {
+  padding: 7px 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 7px;
+  background: var(--ui-surface);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.page-heading { padding: 38px 0 24px; }
+.page-heading h1 { font-size: clamp(30px, 3vw, 38px); font-weight: 650; letter-spacing: -1.2px; }
+.page-heading p { max-width: 720px; margin-top: 8px; color: var(--ui-muted); font-size: 15px; line-height: 1.55; }
+h2 { font-size: 17px; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 650; }
+.muted { color: var(--ui-muted); font-size: 13px; }
+
+.camera-panel, .result-panel, .phrase-list-panel, .sample-panel, .eval-card,
+.lesson-summary, .lesson-detail, .account-card, .admin-card, .lesson-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  box-shadow: var(--ui-shadow);
+}
+.workspace { grid-template-columns: minmax(0, 1.72fr) minmax(290px, 1fr); gap: 20px; }
+.camera-panel { padding: 20px; }
+.panel-heading { margin-bottom: 14px; }
+.camera-state { color: var(--ui-muted); font-size: 12px; }
+.camera-state.connected { color: var(--ui-accent); font-weight: 600; }
+.camera-wrap { height: clamp(280px, 42vh, 470px); background: #e9eee9; border-radius: 9px; }
+.camera-placeholder { background: #ebf0eb; gap: 10px; }
+.camera-placeholder svg { width: 52px; height: 52px; color: #7c9180; }
+.camera-placeholder strong { color: var(--ui-ink); font-size: 17px; font-weight: 600; }
+.camera-placeholder span { color: var(--ui-muted); font-size: 13px; }
+.camera-controls { gap: 10px; padding-top: 16px; }
+.camera-controls .record-hint { color: var(--ui-muted); font-size: 12px; }
+.button { min-height: 42px; padding: 10px 15px; border-radius: 7px; font-size: 13px; font-weight: 600; }
+.primary { background: var(--ui-accent); color: #fff; }
+.primary:hover:not(:disabled) { background: var(--ui-accent-hover); }
+.outline { background: var(--ui-surface); color: var(--ui-ink); border-color: var(--ui-line); }
+.outline:hover:not(:disabled) { background: var(--ui-soft); }
+.quiet:hover { background: var(--ui-soft); }
+.button:disabled { opacity: .55; }
+.camera-tools .button { min-height: 36px; font-size: 12px; }
+.tracking-area { border-color: var(--ui-line); margin-top: 16px; padding-top: 14px; }
+.tracking-control p, .tracking-info { color: var(--ui-muted); font-size: 12px; }
+.tracking-legend { color: var(--ui-muted); font-size: 11px; }
+.record-badge { padding: 9px 12px; font-size: 12px; }
+
+.result-panel { padding: 23px; }
+.result { min-height: 175px; padding-top: 27px; }
+.result-caption { color: var(--ui-muted); font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.result strong { color: var(--ui-ink); font-size: 24px; font-weight: 600; line-height: 1.25; }
+.result p { color: var(--ui-muted); font-size: 13px; line-height: 1.55; }
+#resultActionButton { margin-top: 2px; }
+#resultActionButton, #useRecordingButton, #backToLessonButton { text-align: center; }
+.help-panel { margin-top: 16px; padding: 21px 23px; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: 12px; }
+.help-panel h3 { font-size: 14px; }
+.help-panel ol { margin: 14px 0; color: var(--ui-muted); font-size: 13px; }
+.help-panel li { margin-bottom: 7px; }
+.text-button { color: var(--ui-accent); font-size: 13px; }
+.privacy-note { color: var(--ui-muted); font-size: 12px; padding-top: 17px; }
+
+.feedback:not(:empty) {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  max-width: 760px;
+  padding: 13px 16px;
+  background: #e8f3e9;
+  border: 1px solid #c4dfca;
+  border-radius: 9px;
+  color: #245f43;
+  box-shadow: 0 6px 22px rgb(22 43 29 / 11%);
+  font-size: 13px;
+}
+.feedback.error { background: #fff1ed; border-color: #edc7bd; color: #8d352b; }
+
+.dataset-layout { gap: 20px; }
+.phrase-list-panel, .sample-panel, .eval-card { padding: 24px; }
+.phrase-card { min-height: 69px; border-color: var(--ui-line); }
+.phrase-card:hover, .phrase-card.selected { background: var(--ui-accent-soft); }
+.phrase-card strong { font-size: 14px; font-weight: 600; }
+.phrase-card small { color: var(--ui-muted); font-size: 12px; }
+.field-label { color: var(--ui-muted); font-size: 13px; font-weight: 600; }
+select, .text-input, textarea {
+  border-color: var(--ui-line);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  border-radius: 7px;
+  font-size: 14px;
+}
+.sample-help, .section-note { color: var(--ui-muted); font-size: 13px; }
+.file-note { color: var(--ui-muted); font-size: 11px; }
+.eval-empty p, .eval-actions span, .eval-line, .eval-result { color: var(--ui-muted); font-size: 13px; }
+.eval-summary { color: var(--ui-accent); font-size: 15px; }
+
+.lesson-summary { padding: 20px 24px; }
+.lesson-summary strong { color: var(--ui-accent); font-size: 24px; }
+.lesson-layout { gap: 20px; }
+.lesson-card { min-height: 78px; padding: 17px 20px; }
+.lesson-card:hover, .lesson-card.selected { background: var(--ui-accent-soft); border-color: #9dc8a9; }
+.lesson-card strong { font-size: 15px; }
+.lesson-card small { color: var(--ui-muted); font-size: 12px; }
+.lesson-detail { padding: 29px; }
+.lesson-detail h2 { font-size: 27px; }
+.lesson-placeholder, .lesson-instructions { color: var(--ui-muted); font-size: 14px; }
+.lesson-instructions { color: var(--ui-ink); }
+.lesson-kicker { color: var(--ui-accent); font-size: 12px; }
+.account-card, .admin-card { padding: 25px; }
+.admin-layout { gap: 20px; }
+.admin-user-summary, .admin-progress-label { color: var(--ui-muted); font-size: 13px; }
+.admin-user-details, .admin-row-text { font-size: 13px; }
+.admin-user-details small { font-size: 12px; }
+.role-label { background: var(--ui-accent-soft); color: var(--ui-accent); font-size: 12px; }
+.progress-track { background: var(--ui-soft); }
+.progress-track span { background: #398362; }
+.practice-notice { color: var(--ui-accent); background: var(--ui-accent-soft); font-size: 13px; }
+footer { color: var(--ui-muted); font-size: 12px; }
+
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --ui-bg: #121a16;
+  --ui-surface: #1c2820;
+  --ui-soft: #27372b;
+  --ui-ink: #edf4ee;
+  --ui-muted: #b4c6b8;
+  --ui-line: #395143;
+  --ui-accent: #a7dbb5;
+  --ui-accent-hover: #3d8b5b;
+  --ui-accent-soft: #2b4532;
+  --ui-shadow: none;
+  --green: var(--ui-accent);
+  --muted: var(--ui-muted);
+  --border: var(--ui-line);
+}
+[data-theme=dark] body { background: var(--ui-bg); color: var(--ui-ink); }
+[data-theme=dark] .site-header, [data-theme=dark] .camera-panel,
+[data-theme=dark] .result-panel, [data-theme=dark] .phrase-list-panel,
+[data-theme=dark] .sample-panel, [data-theme=dark] .eval-card,
+[data-theme=dark] .lesson-summary, [data-theme=dark] .lesson-detail,
+[data-theme=dark] .lesson-card, [data-theme=dark] .account-card,
+[data-theme=dark] .admin-card, [data-theme=dark] .help-panel { background: var(--ui-surface); color: var(--ui-ink); }
+[data-theme=dark] .header-action, [data-theme=dark] .outline,
+[data-theme=dark] select, [data-theme=dark] .text-input,
+[data-theme=dark] textarea { background: var(--ui-surface); border-color: var(--ui-line); color: var(--ui-ink); }
+[data-theme=dark] .header-action:hover, [data-theme=dark] .outline:hover:not(:disabled),
+[data-theme=dark] .quiet:hover { background: var(--ui-soft); }
+[data-theme=dark] .tab { color: var(--ui-muted); }
+[data-theme=dark] .tab:hover { background: var(--ui-soft); color: var(--ui-ink); }
+[data-theme=dark] .tab.active { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: #4c7054; }
+[data-theme=dark] .camera-placeholder { background: #28392d; }
+[data-theme=dark] .camera-placeholder strong, [data-theme=dark] .result strong { color: var(--ui-ink); }
+[data-theme=dark] .camera-placeholder span, [data-theme=dark] .result p { color: var(--ui-muted); }
+[data-theme=dark] .primary { background: #3f805b; color: #fff; }
+[data-theme=dark] .primary:hover:not(:disabled) { background: #51966b; }
+[data-theme=dark] .feedback:not(:empty) { background: #28402e; border-color: #486a50; color: #ccebd2; }
+[data-theme=dark] .feedback.error { background: #4b2e29; border-color: #7b4a40; color: #f2c2b6; }
+[data-theme=dark] .phrase-card:hover, [data-theme=dark] .phrase-card.selected,
+[data-theme=dark] .lesson-card:hover, [data-theme=dark] .lesson-card.selected { background: var(--ui-accent-soft); border-color: #4c7054; }
+[data-theme=dark] .dataset-status { background: var(--ui-surface); }
+[data-theme=dark] .role-label, [data-theme=dark] .practice-notice { background: var(--ui-accent-soft); color: var(--ui-accent); }
+[data-theme=dark] .progress-track { background: var(--ui-soft); }
+
+@media (max-width: 900px) {
+  .header-inner, .app-shell { padding-left: 24px; padding-right: 24px; }
+  .workspace, .admin-layout { grid-template-columns: minmax(0, 1fr); }
+  .result-column { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .help-panel { margin-top: 0; }
+  .lesson-layout { grid-template-columns: 1fr 1.2fr; }
+}
+@media (max-width: 680px) {
+  .header-inner, .app-shell { padding-left: 16px; padding-right: 16px; }
+  .header-inner { height: 66px; }
+  .brand { font-size: 22px; }
+  .header-actions { gap: 5px; }
+  .header-action { min-height: 38px; padding: 7px 9px; font-size: 12px; }
+  .tabs { min-height: 64px; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
+  .tab { flex-shrink: 0; padding: 9px 11px; font-size: 12px; }
+  .page-heading { padding: 28px 0 21px; }
+  .page-heading h1 { font-size: 30px; }
+  .page-heading p { font-size: 14px; }
+  .camera-panel, .result-panel, .phrase-list-panel, .sample-panel, .eval-card,
+  .lesson-detail, .account-card, .admin-card { padding: 18px; }
+  .camera-wrap { height: auto; min-height: 240px; aspect-ratio: 4 / 3; }
+  .camera-tools { gap: 7px; }
+  .camera-tools .button { font-size: 11px; padding: 7px 9px; }
+  .camera-controls .button { font-size: 12px; }
+  .workspace, .dataset-layout, .lesson-layout, .result-column { grid-template-columns: 1fr; gap: 15px; }
+  .help-panel { margin-top: 0; }
+  .lesson-summary { flex-wrap: wrap; gap: 12px; }
+  .lesson-summary > p { max-width: none; width: 100%; }
+  .feedback:not(:empty) { top: 8px; }
+}
+@media (max-width: 420px) {
+  .lang-switch button { min-width: 29px; padding: 7px 6px; }
+  .camera-controls .record-hint { width: 100%; }
+  .camera-controls .button { flex: 1 1 auto; }
+  .admin-user-heading { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

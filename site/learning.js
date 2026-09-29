@@ -7,6 +7,7 @@
 
   const state = {me: null, lessons: [], completed: 0, total: 0, selected: null, users: [], usersLoading: false,
     usersError: '', samples: [], samplesError: '', practicePhrase: null};
+  let editorPhrase = null;
   const element = (tag, className, value) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -57,6 +58,10 @@
       content.append(element('p', 'role-label', t(me.account.role === 'admin' ? 'roleAdmin' : 'roleStudent')));
     }
     const admin = isAdmin();
+    $('datasetTip').dataset.i18n = admin ? 'tipDataset' : 'tipDatasetStudent';
+    $('datasetTip').textContent = t($('datasetTip').dataset.i18n);
+    $('goDatasetText').dataset.i18n = admin ? 'goDataset' : 'goDatasetStudent';
+    $('goDatasetText').textContent = t($('goDatasetText').dataset.i18n);
     document.querySelector('.sample-panel').hidden = !admin;
     $('datasetReadOnly').hidden = admin;
     $('useRecordingButton').hidden = !admin || !clip;
@@ -112,11 +117,14 @@
     $('practiceNotice').textContent = lesson ? t('practiceNow', {phrase: lessonTitle(lesson)}) : '';
     $('backToLessonButton').hidden = !lesson;
   }
-  function renderAdminEditor() {
+  function renderAdminEditor(force = false) {
     const chosen = $('adminPhrase').value || state.lessons[0]?.phrase_id;
     const lesson = state.lessons.find(item => item.phrase_id === chosen);
-    $('instructionsRu').value = lesson?.instructions_ru || '';
-    $('instructionsEn').value = lesson?.instructions_en || '';
+    if (force || editorPhrase !== chosen) {
+      $('instructionsRu').value = lesson?.instructions_ru || '';
+      $('instructionsEn').value = lesson?.instructions_en || '';
+      editorPhrase = chosen;
+    }
     $('deleteLessonVideoButton').disabled = !lesson?.has_video;
   }
   function renderAdmin() {
@@ -126,7 +134,9 @@
     }));
     if (state.lessons.some(item => item.phrase_id === selected)) $('adminPhrase').value = selected;
     renderAdminEditor();
-    const users = $('adminUsers'); users.replaceChildren();
+    const users = $('adminUsers');
+    const expanded = new Set([...users.querySelectorAll('.admin-user:has(details[open])')].map(row => row.dataset.userId));
+    users.replaceChildren();
     $('adminUserSummary').textContent = t('registeredUsers', {n: state.users.length});
     if (state.usersLoading) users.append(element('p', 'muted', t('loadingUsers')));
     if (state.usersError) {
@@ -137,6 +147,7 @@
     if (!state.usersLoading && !state.usersError && !state.users.length) users.append(element('p', 'muted', t('noUsers')));
     state.users.forEach(user => {
       const row = element('article', 'admin-user');
+      row.dataset.userId = user.id;
       const heading = element('div', 'admin-user-heading');
       const text = element('div', 'admin-row-text'); text.append(element('strong', '', user.display_name), element('small', '', user.email));
       heading.append(text, element('span', 'role-label', t(user.role === 'admin' ? 'roleAdmin' : 'roleStudent')));
@@ -146,6 +157,7 @@
       const fill = element('span'); fill.style.width = `${progress.total ? Math.round(progress.completed / progress.total * 100) : 0}%`;
       bar.append(fill);
       const details = element('details', 'admin-user-details');
+      details.open = expanded.has(user.id);
       details.append(element('summary', '', t('lessonProgressDetails')));
       const list = element('ul');
       state.lessons.forEach(lesson => {
@@ -185,7 +197,7 @@
       row.append(action); sampleList.append(row);
     });
   }
-  function render() { renderTheme(); renderAccount(); renderLessons(); if (isAdmin()) renderAdmin(); renderPracticeNotice(); }
+  function render() { renderTheme(); renderAccount(); renderLessons(); if (isAdmin()) renderAdmin(); renderPracticeNotice(); renderResult(); }
   async function refreshLessons() {
     const data = await getJson('/api/lessons');
     state.lessons = data.lessons; state.completed = data.completed; state.total = data.total;
@@ -221,10 +233,11 @@
       try { await api('/api/register', {display_name: $('displayName').value}); state.me = await getJson('/api/me'); await refreshLessons(); if (isAdmin()) await loadAdmin(); render(); setFeedback(t('profileCreated')); }
       catch (error) { setFeedback(error.message, true); }
     };
-    $('adminPhrase').onchange = renderAdminEditor;
+    $('adminPhrase').onchange = () => renderAdminEditor(true);
     $('saveLessonButton').onclick = async () => {
       try {
         await api(`/api/admin/lessons/${$('adminPhrase').value}`, {instructions_ru: $('instructionsRu').value, instructions_en: $('instructionsEn').value});
+        editorPhrase = null;
         await refreshLessons(); setFeedback(t('lessonSaved'));
       } catch (error) { setFeedback(error.message, true); }
     };
@@ -247,6 +260,8 @@
     await refreshLessons();
     if (isAdmin()) await loadAdmin();
     render();
+    const requestedPanel = new URLSearchParams(location.search).get('tab');
+    if (requestedPanel) setPanel(requestedPanel, true);
   }
   window.SignVisionLearning = {init, render, refreshLessons, loadAdmin, isAdmin, isRegistered,
     get practicePhrase() { return state.practicePhrase; },
