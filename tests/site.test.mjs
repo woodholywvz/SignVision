@@ -1,22 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import worker from '../dist/server/index.js';
-
-function bucket() {
-  const data = new Map();
-  return {
-    async list() { return {objects: [...data.keys()].map(key => ({key})), truncated: false}; },
-    async get(key) { return data.has(key) ? {json: async () => JSON.parse(data.get(key))} : null; },
-    async put(key, value) { data.set(key, value); },
-  };
-}
-const request = (path, data) => new Request(`https://example.com${path}`, data === undefined ? {} : {
-  method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(data),
-});
+import {environment, request} from './site-env.mjs';
 const sequence = Array.from({length: 12}, () => { const frame = Array(284).fill(0); frame[0] = 1; return frame; });
 
 test('hosted Site saves landmarks and recognizes a known sequence', async () => {
-  const env = {BUCKET: bucket()};
+  const env = environment();
   const saved = await worker.fetch(request('/api/samples', {phrase_id: 'privet', sequence}), env);
   assert.equal(saved.status, 200);
   assert.equal((await saved.json()).counts.privet, 1);
@@ -27,14 +16,14 @@ test('hosted Site saves landmarks and recognizes a known sequence', async () => 
 });
 
 test('hosted Site rejects sequences without hands', async () => {
-  const env = {BUCKET: bucket()};
+  const env = environment();
   const absent = sequence.map(() => Array(284).fill(0));
   const response = await worker.fetch(request('/api/samples', {phrase_id: 'privet', sequence: absent}), env);
   assert.equal(response.status, 422);
 });
 
 test('live translation separates matches, suggestions and distant gestures', async () => {
-  const env = {BUCKET: bucket()};
+  const env = environment();
   await worker.fetch(request('/api/samples', {phrase_id: 'privet', sequence, duration_s: 2}), env);
   const live = async (frames, quality = {}) => (await worker.fetch(request('/api/live', {sequence: frames, quality, duration_s: 2}), env)).json();
   assert.equal((await live(sequence)).state, 'recognized');
@@ -55,7 +44,7 @@ test('live translation separates matches, suggestions and distant gestures', asy
 });
 
 test('extra examples of another phrase cannot outvote an exact reference', async () => {
-  const env = {BUCKET: bucket()};
+  const env = environment();
   const shifted = sequence.map(frame => {
     const row = [...frame];
     for (let i = 1; i <= 63; i++) row[i] = .4;
@@ -69,7 +58,7 @@ test('extra examples of another phrase cannot outvote an exact reference', async
 });
 
 test('reference upload trims blank ends and live mode waits for a long phrase', async () => {
-  const env = {BUCKET: bucket()};
+  const env = environment();
   const blank = Array(284).fill(0);
   const padded = [...Array.from({length: 8}, () => blank), ...sequence, ...Array.from({length: 8}, () => blank)];
   const saved = await worker.fetch(request('/api/samples', {phrase_id: 'privet', sequence: padded, duration_s: 3.5}), env);
@@ -82,7 +71,7 @@ test('reference upload trims blank ends and live mode waits for a long phrase', 
     frame[278] = i / 48;
     return frame;
   });
-  const longEnv = {BUCKET: bucket()};
+  const longEnv = environment();
   await worker.fetch(request('/api/samples', {phrase_id: 'spasibo', sequence: long, duration_s: 6}), longEnv);
   const early = await worker.fetch(request('/api/live', {sequence: long.slice(0, 24), duration_s: 3}), longEnv);
   assert.equal((await early.json()).state, 'waiting');
@@ -96,7 +85,7 @@ test('reference upload trims blank ends and live mode waits for a long phrase', 
 });
 
 test('a held-out gesture variant matches its phrase while an unrelated one stays unknown', async () => {
-  const env = {BUCKET: bucket()};
+  const env = environment();
   const gesture = (length, base, reverse = false, noise = 0) => Array.from({length}, (_, i) => {
     const progress = i / (length - 1);
     const position = base + (reverse ? 1 - progress : progress) + noise * Math.sin(i * 2);

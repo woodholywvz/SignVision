@@ -118,7 +118,7 @@ function applyLocale() {
   document.querySelectorAll('#evalLabels select').forEach(select => options(select, true, select.value));
   if (phrases.length) renderCatalog(); else $('datasetStatus').textContent = t('loadingDataset');
   $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
-  $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking(); renderControls();
+  $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking(); renderControls(); window.SignVisionLearning?.render();
 }
 document.querySelectorAll('.lang-switch button').forEach(button => button.addEventListener('click', () => {
   locale = button.dataset.lang;
@@ -145,10 +145,10 @@ function renderControls() {
   $('stopButton').hidden = !recording;
   $('cameraOffButton').hidden = !stream;
   $('cameraOffButton').disabled = recording;
-  $('saveButton').disabled = !clip || busy;
-  $('useRecordingButton').hidden = !clip;
+  $('saveButton').disabled = !clip || busy || !window.SignVisionLearning?.isAdmin();
+  $('useRecordingButton').hidden = !clip || !window.SignVisionLearning?.isAdmin();
   $('evalButton').disabled = busy || !$('evalFiles').files.length;
-  $('sampleFile').disabled = busy; $('evalFiles').disabled = busy;
+  $('sampleFile').disabled = busy || !window.SignVisionLearning?.isAdmin(); $('evalFiles').disabled = busy;
   $('trackButton').disabled = cameraStarting || live;
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
   $('cameraState').classList.toggle('connected', !!stream);
@@ -193,12 +193,14 @@ function stopCamera() {
 }
 function setPanel(name) {
   if (recorder?.state === 'recording') { setFeedback(t('finishRecordingFirst')); return; }
+  if (name === 'admin' && !window.SignVisionLearning?.isAdmin()) return;
   if (name !== 'studio') stopCamera();
   document.querySelectorAll('[data-panel]').forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
   document.querySelectorAll('[data-tab]').forEach(button => {
     const selected = button.dataset.tab === name; button.classList.toggle('active', selected);
     if (selected) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
   });
+  window.SignVisionLearning?.onPanel(name);
 }
 document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => setPanel(button.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => setPanel(button.dataset.go));
@@ -261,8 +263,11 @@ $('recordButton').addEventListener('click', () => {
     resultState = {phase: 'processing'}; renderResult();
     try {
       const sequence = await window.GestureEngine.extract(clip);
-      const prediction = await api('/api/recognize', {sequence});
+      const practicePhrase = window.SignVisionLearning?.practicePhrase;
+      const practice = practicePhrase ? await api(`/api/lessons/${practicePhrase}/practice`, {sequence}) : null;
+      const prediction = practice?.prediction || await api('/api/recognize', {sequence});
       resultState = {phase: prediction.phrase_id ? 'recognized' : 'unknown', prediction}; renderResult();
+      if (practice) await window.SignVisionLearning.onPracticeResult(practice);
     } catch (error) { resultState = {phase: 'error', error: errorText(error)}; renderResult(); }
     finally { busy = false; renderControls(); }
   };
@@ -279,14 +284,14 @@ $('stopButton').addEventListener('click', () => { if (recorder?.state === 'recor
 $('saveButton').addEventListener('click', async () => {
   if (!clip || busy) return;
   busy = true; renderControls();
-  try { setFeedback(t('saving')); const sequence = await window.GestureEngine.extract(clip); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); setFeedback(t('saved', {n: data.frames})); }
+  try { setFeedback(t('saving')); const sequence = await window.GestureEngine.extract(clip); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); await window.SignVisionLearning?.refreshLessons(); await window.SignVisionLearning?.loadAdmin(); setFeedback(t('saved', {n: data.frames})); }
   catch (error) { setFeedback(errorText(error), true); }
   finally { busy = false; renderControls(); }
 });
 $('sampleFile').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file || busy) return;
   busy = true; renderControls();
-  try { setFeedback(t('uploading')); const sequence = await window.GestureEngine.extract(file); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); setFeedback(t('uploaded', {n: data.frames})); }
+  try { setFeedback(t('uploading')); const sequence = await window.GestureEngine.extract(file); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); await window.SignVisionLearning?.refreshLessons(); await window.SignVisionLearning?.loadAdmin(); setFeedback(t('uploaded', {n: data.frames})); }
   catch (error) { setFeedback(errorText(error), true); }
   finally { event.target.value = ''; busy = false; renderControls(); }
 });
@@ -312,6 +317,7 @@ $('evalButton').addEventListener('click', async () => {
   busy = false; renderControls(); renderEvaluation();
 });
 applyLocale(); renderControls(); refresh().catch(error => setFeedback(error.message, true));
+window.SignVisionLearning.init().catch(error => setFeedback(error.message, true));
 if (new URLSearchParams(location.search).has('mediaTest')) {
   setFeedback('Loading MediaPipe…');
   window.GestureEngine.selfTest().then(hands => setFeedback(`MediaPipe ready · hands: ${hands}`, hands < 1)).catch(error => setFeedback(error.message, true));

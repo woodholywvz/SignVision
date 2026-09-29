@@ -11,19 +11,21 @@
 <body>
   <header class="site-header"><div class="header-inner">
     <a class="brand" href="/">SignVision<span class="brand-caption" data-i18n="brandCaption">Русский жестовый язык</span></a>
-    <div class="lang-switch" role="group" aria-label="Язык" data-i18n-aria-label="language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div>
+    <div class="header-actions"><button type="button" id="themeButton" class="header-action" aria-label="Тёмная тема">◐</button><div class="lang-switch" role="group" aria-label="Язык" data-i18n-aria-label="language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><a id="signInLink" class="header-action" href="/signin-with-chatgpt?return_to=%2F" data-i18n="signIn">Войти</a><button type="button" id="accountButton" class="header-action" data-tab="account" hidden>Профиль</button></div>
   </div></header>
   <main class="app-shell">
     <nav class="tabs" aria-label="Разделы" data-i18n-aria-label="sections">
       <button type="button" class="tab active" data-tab="studio" aria-current="page" data-i18n="navStudio">Распознавание</button>
       <button type="button" class="tab" data-tab="dataset" data-i18n="navDataset">Эталонные жесты</button>
+      <button type="button" class="tab" data-tab="lessons" data-i18n="navLessons">Уроки</button>
       <button type="button" class="tab" data-tab="evaluation" data-i18n="navEvaluation">Проверка точности</button>
+      <button type="button" class="tab" data-tab="admin" data-i18n="navAdmin" hidden>Управление</button>
       <span class="dataset-status" id="datasetStatus" aria-live="polite"></span>
     </nav>
     <p class="feedback" id="feedback" role="status" aria-live="polite"></p>
 
     <section data-panel="studio" id="studio">
-      <div class="page-heading"><h1 data-i18n="studioTitle">Покажите жест</h1><p data-i18n="studioDescription">Включите камеру, запишите одну фразу и получите результат.</p></div>
+      <div class="page-heading"><h1 data-i18n="studioTitle">Покажите жест</h1><p data-i18n="studioDescription">Включите камеру, запишите одну фразу и получите результат.</p><p id="practiceNotice" class="practice-notice" hidden></p></div>
       <div class="workspace">
         <section class="camera-panel" aria-label="Камера" data-i18n-aria-label="camera">
           <div class="panel-heading"><h2 data-i18n="camera">Камера</h2><div class="camera-tools"><span class="camera-state" id="cameraState">Отключена</span><button id="trackButton" class="button outline" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 17 6-10 6 10H6Z"/><circle cx="6" cy="17" r="2" fill="currentColor"/><circle cx="12" cy="7" r="2" fill="currentColor"/><circle cx="18" cy="17" r="2" fill="currentColor"/></svg><span id="trackButtonText" data-i18n="checkJoints">Проверить суставы</span></button></div></div>
@@ -39,7 +41,7 @@
           <div class="camera-controls"><button id="liveButton" class="button outline" aria-pressed="false" data-i18n="startLive">Начать живой перевод</button><button id="recordButton" class="button primary" data-i18n="startRecording" hidden disabled>Записать жест</button><button id="stopButton" class="button danger" data-i18n="stopRecording" hidden>Завершить запись</button><button id="cameraOffButton" class="button quiet" data-i18n="disableCamera" hidden>Выключить</button><span class="record-hint" data-i18n="recordHint">Одна фраза · 2–8 секунд</span></div>
           <div class="tracking-area"><div class="tracking-control"><p data-i18n="trackingHint">Покажет точки рук и тела в реальном времени. Запись не нужна.</p></div><div id="trackingInfo" class="tracking-info" hidden><span id="trackStatus" role="status" aria-live="polite"></span><div class="tracking-legend"><span><i class="hand-dot"></i><span data-i18n="handsLegend">Кисти</span></span><span><i class="pose-dot"></i><span data-i18n="bodyLegend">Тело</span></span><span id="trackingStats"></span></div></div></div>
         </section>
-        <aside class="result-column"><section class="result-panel"><h2 data-i18n="interpretation">Результат</h2><div class="result" id="result"><span class="result-caption" id="resultCaption"></span><strong id="resultText"></strong><p id="resultDetail"></p></div><button class="button outline full-width" id="useRecordingButton" data-i18n="useRecording" hidden>Добавить запись в примеры</button></section>
+        <aside class="result-column"><section class="result-panel"><h2 data-i18n="interpretation">Результат</h2><div class="result" id="result"><span class="result-caption" id="resultCaption"></span><strong id="resultText"></strong><p id="resultDetail"></p></div><button class="button outline full-width" id="useRecordingButton" data-i18n="useRecording" hidden>Добавить запись в примеры</button><button class="button outline full-width" id="backToLessonButton" data-go="lessons" data-i18n="backToLesson" hidden>К уроку</button></section>
           <section class="help-panel"><h3 data-i18n="beforeStart">Перед первой записью</h3><ol><li data-i18n="tipLight">Сядьте лицом к источнику света.</li><li data-i18n="tipFrame">Держите кисти и плечи в кадре.</li><li data-i18n="tipDataset">Добавьте примеры фраз, которые хотите распознавать.</li></ol><button class="text-button" data-go="dataset"><span data-i18n="goDataset">К примерам фраз</span><span aria-hidden="true">→</span></button></section>
         </aside>
       </div>
@@ -50,7 +52,26 @@
       <div class="page-heading"><h1 data-i18n="phrasesTitle">Эталонные жесты</h1><p data-i18n="phrasesDescription">Выберите фразу и загрузите несколько видео её жеста.</p></div>
       <div class="dataset-layout"><section class="phrase-list-panel"><div class="panel-heading"><h2 data-i18n="phraseList">Ваши фразы</h2><span class="muted" id="totalCount"></span></div><div id="phraseGrid" class="phrase-list"></div></section>
         <section class="sample-panel"><h2 data-i18n="addExample">Добавить пример</h2><label class="field-label" for="phraseSelect" data-i18n="phraseLabel">Фраза</label><select id="phraseSelect"></select><p class="sample-help" data-i18n="sampleHelp">Загрузите видео одного жеста длительностью до 8 секунд или сохраните запись с камеры.</p><label class="file-button button primary"><span data-i18n="uploadVideo">Загрузить видео</span><input type="file" id="sampleFile" accept=".mp4,.webm,.mov,.avi" aria-label="Загрузить видео" data-i18n-aria-label="uploadVideo"></label><span class="file-note">MP4, WebM, MOV, AVI · ≤ 60 MB</span><div class="last-recording"><span id="clipStatus" class="muted" data-i18n="noRecording">Записи с камеры пока нет</span><button id="saveButton" class="button outline" data-i18n="saveRecording" disabled>Сохранить запись</button></div><button class="text-button" data-go="studio"><span aria-hidden="true">←</span><span data-i18n="backToCamera">К камере</span></button></section></div>
+      <p id="datasetReadOnly" class="section-note" data-i18n="adminMaterialsOnly" hidden>Добавлять и удалять эталоны может только администратор.</p>
       <p class="section-note" data-i18n="datasetAdvice">Снимайте при разном освещении и с разными людьми. Разнообразные примеры помогают распознаванию.</p>
+    </section>
+
+    <section data-panel="lessons" hidden>
+      <div class="page-heading"><h1 data-i18n="lessonsTitle">Уроки</h1><p data-i18n="lessonsDescription">Изучайте фразы по порядку и проверяйте себя на камере.</p></div>
+      <div class="lesson-summary"><div><span class="muted" data-i18n="yourProgress">Ваш прогресс</span><strong id="lessonProgressText">0 / 5</strong></div><div class="progress-track"><span id="lessonProgressBar"></span></div><p id="lessonAccountHint" class="muted"></p></div>
+      <div class="lesson-layout"><div id="lessonList" class="lesson-list"></div><section id="lessonDetail" class="lesson-detail" aria-live="polite"></section></div>
+    </section>
+
+    <section data-panel="account" hidden>
+      <div class="page-heading"><h1 data-i18n="accountTitle">Профиль</h1><p data-i18n="accountDescription">Войдите, чтобы сохранять прогресс уроков.</p></div>
+      <section class="account-card"><div id="accountContent"></div><div id="registrationForm" hidden><label class="field-label" for="displayName" data-i18n="displayName">Имя</label><input id="displayName" class="text-input" maxlength="80" autocomplete="name"><button id="registerButton" class="button primary" data-i18n="createProfile">Создать профиль</button></div><a id="signOutLink" class="text-button" href="/signout-with-chatgpt?return_to=%2F" data-i18n="signOut" hidden>Выйти</a></section>
+    </section>
+
+    <section data-panel="admin" hidden>
+      <div class="page-heading"><h1 data-i18n="adminTitle">Управление материалами</h1><p data-i18n="adminDescription">Настройте уроки, загрузите видео и управляйте доступом.</p></div>
+      <div class="admin-layout"><section class="admin-card"><h2 data-i18n="editLesson">Материалы урока</h2><label class="field-label" for="adminPhrase" data-i18n="phraseLabel">Фраза</label><select id="adminPhrase"></select><label class="field-label" for="instructionsRu" data-i18n="instructionsRu">Инструкция · RU</label><textarea id="instructionsRu" rows="6" maxlength="4000"></textarea><label class="field-label" for="instructionsEn" data-i18n="instructionsEn">Инструкция · EN</label><textarea id="instructionsEn" rows="6" maxlength="4000"></textarea><div class="admin-actions"><button id="saveLessonButton" class="button primary" data-i18n="saveLesson">Сохранить урок</button><label class="file-button button outline"><span data-i18n="uploadLessonVideo">Загрузить видео урока</span><input id="lessonVideoFile" type="file" accept="video/mp4,video/webm" data-i18n-aria-label="uploadLessonVideo"></label><button id="deleteLessonVideoButton" class="button quiet" data-i18n="deleteLessonVideo">Удалить видео</button></div><p class="file-note" data-i18n="lessonVideoHint">MP4 или WebM, до 20 МБ. Для практики добавьте эталоны в соседнем разделе.</p></section>
+      <section class="admin-card"><h2 data-i18n="manageAdmins">Администраторы</h2><div id="adminUsers"></div></section></div>
+      <section class="admin-card admin-samples"><h2 data-i18n="manageReferences">Эталоны для распознавания</h2><p class="muted" data-i18n="manageReferencesHint">Новые эталоны загружаются в разделе «Эталонные жесты».</p><div id="adminSamples"></div></section>
     </section>
 
     <section data-panel="evaluation" hidden>
@@ -59,6 +80,6 @@
     </section>
     <footer><span>SignVision</span><span data-i18n="footerText">Распознавание фиксированных фраз РЖЯ</span></footer>
   </main>
-  <script src="/static/i18n.js"></script><script src="/static/tracking.js"></script><script src="/static/app.js"></script>
+  <script src="/static/i18n.js"></script><script src="/static/tracking.js"></script><script src="/static/learning.js"></script><script src="/static/app.js"></script>
 </body>
 </html>

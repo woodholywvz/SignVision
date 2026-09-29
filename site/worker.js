@@ -35,7 +35,7 @@ async function samples(bucket) {
       const response = await bucket.get(object.key);
       if (!response) continue;
       const sample = await response.json();
-      if (IDS.has(sample.phrase_id) && validSequence(sample.sequence)) found.push(sample);
+      if (IDS.has(sample.phrase_id) && validSequence(sample.sequence)) found.push({...sample, key: object.key, sample_id: object.key.split('/').pop().replace(/\.json$/, '')});
     }
     cursor = listed.truncated ? listed.cursor : null;
   } while (cursor && found.length < MAX_SAMPLES);
@@ -212,10 +212,48 @@ export default {
     if (!path.startsWith('/api/')) return new Response('Not found', {status: 404});
     if (!env.BUCKET) return error('Хранилище сайта пока недоступно', 503);
     try {
+      if (path === '/api/me' && request.method === 'GET') {
+        if (!env.DB) throw new ApiError('Профили временно недоступны.', 503);
+        const {identity, account} = await accountFor(request, env.DB);
+        return json({authenticated: !!identity, registered: !!account, account,
+          suggested_name: identity?.fullName || identity?.email?.split('@')[0] || ''});
+      }
+      if (path === '/api/lessons' && request.method === 'GET') {
+        if (!env.DB) throw new ApiError('Уроки временно недоступны.', 503);
+        return json(await listLessons(request, env));
+      }
+      const lessonVideo = path.match(/^\/api\/lessons\/([a-z_]+)\/video$/);
+      if (lessonVideo && request.method === 'GET') return await serveLessonVideo(env, lessonVideo[1]);
       if (path === '/api/config' && request.method === 'GET') return json({phrases: PHRASES, counts: counts(await samples(env.BUCKET)), min_frames: 8, sample_fps: 8});
+      if (path === '/api/admin/users' && request.method === 'GET') return json({users: await usersForAdmin(request, env.DB)});
+      if (path === '/api/admin/samples' && request.method === 'GET') {
+        await requireAdmin(request, env.DB);
+        return json({samples: (await samples(env.BUCKET)).map(({sample_id, phrase_id, duration_s, created_at}) => ({sample_id, phrase_id, duration_s, created_at}))});
+      }
+      const removeSample = path.match(/^\/api\/admin\/samples\/([0-9a-f-]+)$/);
+      if (removeSample && request.method === 'DELETE') {
+        await requireAdmin(request, env.DB);
+        const existing = await samples(env.BUCKET);
+        const item = existing.find(sample => sample.sample_id === removeSample[1]);
+        if (!item) throw new ApiError('Эталон не найден.', 404);
+        await env.BUCKET.delete(item.key);
+        sampleCache.delete(env.BUCKET);
+        return json({removed: item.sample_id, counts: counts(existing.filter(sample => sample !== item))});
+      }
+      const lessonAdmin = path.match(/^\/api\/admin\/lessons\/([a-z_]+)(\/video)?$/);
+      if (lessonAdmin && lessonAdmin[2] && request.method === 'PUT') return json(await uploadLessonVideo(request, env, lessonAdmin[1]));
+      if (lessonAdmin && lessonAdmin[2] && request.method === 'DELETE') return json(await deleteLessonVideo(request, env, lessonAdmin[1]));
       if (request.method !== 'POST') return error('Method not allowed', 405);
       const data = await body(request), lang = language(request);
+      if (path === '/api/register') return json({account: await registerAccount(request, env, data)});
+      const userRole = path.match(/^\/api\/admin\/users\/([^/]+)\/role$/);
+      if (userRole) return json({account: await changeUserRole(request, env.DB, decodeURIComponent(userRole[1]), data.role)});
+      if (lessonAdmin && !lessonAdmin[2]) return json(await saveLessonMaterial(request, env, lessonAdmin[1], data));
+      const lessonAction = path.match(/^\/api\/lessons\/([a-z_]+)\/(start|practice)$/);
+      if (lessonAction && lessonAction[2] === 'start') return json(await startLesson(request, env, lessonAction[1]));
+      if (lessonAction && lessonAction[2] === 'practice') return json(await practiceLesson(request, env, lessonAction[1], data));
       if (path === '/api/samples') {
+        await requireAdmin(request, env.DB);
         if (!IDS.has(data.phrase_id)) return error('Неизвестная фраза');
         const trimmed = trimSequence(data.sequence);
         if (!validSequence(trimmed, .65)) return error('Недостаточно кадров или рук в кадре', 422);
@@ -224,9 +262,10 @@ export default {
         const id = crypto.randomUUID();
         const sequence = resample(trimmed).map(frame => frame.map(value => Math.round(value * 10000) / 10000));
         const duration_s = Number.isFinite(data.duration_s) && data.duration_s > 0 && data.duration_s <= 60 ? data.duration_s * trimmed.length / data.sequence.length : null;
-        const saved = {phrase_id: data.phrase_id, sequence, duration_s};
-        await env.BUCKET.put(`samples/${data.phrase_id}/${id}.json`, JSON.stringify(saved), {httpMetadata: {contentType: 'application/json'}});
-        existing.push(saved); sampleCache.set(env.BUCKET, {at: Date.now(), items: existing});
+        const key = `samples/${data.phrase_id}/${id}.json`;
+        const saved = {phrase_id: data.phrase_id, sequence, duration_s, created_at: Date.now()};
+        await env.BUCKET.put(key, JSON.stringify(saved), {httpMetadata: {contentType: 'application/json'}});
+        existing.push({...saved, key, sample_id: id}); sampleCache.set(env.BUCKET, {at: Date.now(), items: existing});
         return json({sample_id: id, frames: trimmed.length, counts: counts(existing)});
       }
       if (path === '/api/recognize') {
@@ -253,6 +292,7 @@ export default {
       }
       return error('Not found', 404);
     } catch (caught) {
+      if (caught instanceof ApiError) return error(language(request) === 'en' ? API_ERROR_EN[caught.message] || caught.message : caught.message, caught.status);
       console.error('SignVision request failed', caught);
       return error('Не удалось выполнить запрос. Попробуйте ещё раз.', 500);
     }

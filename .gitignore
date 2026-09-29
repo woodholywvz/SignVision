@@ -6,5 +6,6 @@ models/
 logs/
 *.pyc
 dist/
+node_modules/
 .sites-runtime/
 .sites-checkout/

@@ -5,6 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "node site/build.mjs",
-    "test": "node site/build.mjs && node --test tests/site.test.mjs"
+    "test": "node site/build.mjs && node --test tests/site.test.mjs tests/site-tracking.test.cjs tests/site-account.test.mjs",
+    "db:generate": "drizzle-kit generate"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2"
   }
 }
