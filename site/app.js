@@ -222,6 +222,25 @@ document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () =>
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => setPanel(button.dataset.go));
 window.addEventListener('popstate', () => setPanel(new URLSearchParams(location.search).get('tab') || 'studio', true));
 $('phraseSelect').addEventListener('change', renderCatalog);
+$('newPhraseForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = $('addPhraseButton');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const created = await api('/api/admin/phrases', {text: $('newPhraseRu').value, en: $('newPhraseEn').value});
+    await refresh();
+    $('phraseSelect').value = created.phrase.id;
+    renderCatalog();
+    await window.SignVisionLearning?.refreshLessons();
+    await window.SignVisionLearning?.loadAdmin();
+    $('newPhraseRu').value = '';
+    $('newPhraseEn').value = '';
+    $('phraseCreate').open = false;
+    setFeedback(t('phraseCreated', {phrase: phraseName(created.phrase.id)}));
+  } catch (caught) { setFeedback(caught.message, true); }
+  finally { button.disabled = false; }
+});
 $('useRecordingButton').onclick = () => setPanel('dataset');
 $('resultActionButton').onclick = () => setPanel(window.SignVisionLearning?.isAdmin() ? 'dataset' : 'lessons');
 $('cameraButton').addEventListener('click', startCamera);

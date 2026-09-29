@@ -151,7 +151,17 @@ h3 { font-size: 14px; font-weight: 650; }
 .feedback.error { background: #fff1ed; border-color: #edc7bd; color: #8d352b; }
 
 .dataset-layout { gap: 20px; }
+.dataset-layout:has(.sample-panel[hidden]) { grid-template-columns: 1fr; }
 .phrase-list-panel, .sample-panel, .eval-card { padding: 24px; }
+.phrase-create { margin: 3px 0 16px; }
+.phrase-create summary { display: inline-flex; list-style: none; cursor: pointer; }
+.phrase-create summary::-webkit-details-marker { display: none; }
+.phrase-create summary::before { content: "+"; font-size: 18px; line-height: 14px; font-weight: 400; }
+.phrase-create[open] summary { background: var(--ui-accent-soft); border-color: #9dc8a9; color: var(--ui-accent); }
+.phrase-create-fields { margin-top: 15px; padding: 3px 0 17px; border-bottom: 1px solid var(--ui-line); }
+.phrase-create-fields .field-label { margin-top: 12px; }
+.phrase-create-fields .muted { margin-top: 12px; line-height: 1.5; }
+.phrase-create-fields .button { margin-top: 13px; }
 .phrase-card { min-height: 69px; border-color: var(--ui-line); }
 .phrase-card:hover, .phrase-card.selected { background: var(--ui-accent-soft); }
 .phrase-card strong { font-size: 14px; font-weight: 600; }
@@ -232,6 +242,7 @@ footer { color: var(--ui-muted); font-size: 12px; }
 [data-theme=dark] .feedback.error { background: #4b2e29; border-color: #7b4a40; color: #f2c2b6; }
 [data-theme=dark] .phrase-card:hover, [data-theme=dark] .phrase-card.selected,
 [data-theme=dark] .lesson-card:hover, [data-theme=dark] .lesson-card.selected { background: var(--ui-accent-soft); border-color: #4c7054; }
+[data-theme=dark] .phrase-create[open] summary { background: var(--ui-accent-soft); border-color: #4c7054; color: var(--ui-accent); }
 [data-theme=dark] .dataset-status { background: var(--ui-surface); }
 [data-theme=dark] .role-label, [data-theme=dark] .practice-notice { background: var(--ui-accent-soft); color: var(--ui-accent); }
 [data-theme=dark] .progress-track { background: var(--ui-soft); }

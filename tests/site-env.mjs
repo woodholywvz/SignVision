@@ -16,7 +16,8 @@ export function request(path, data, user = admin, method = data === undefined ? 
 
 export function environment({seedAdmin = true} = {}) {
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync('drizzle/0000_fresh_marvex.sql', 'utf8').replaceAll('--> statement-breakpoint', ''));
+  const migrations = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8')).entries;
+  for (const migration of migrations) sqlite.exec(readFileSync(`drizzle/${migration.tag}.sql`, 'utf8').replaceAll('--> statement-breakpoint', ''));
   if (seedAdmin) sqlite.prepare('INSERT INTO accounts (id, email, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(admin.id, admin.email, admin.name, 'admin', 1);
   const DB = {

@@ -62,7 +62,10 @@
     $('datasetTip').textContent = t($('datasetTip').dataset.i18n);
     $('goDatasetText').dataset.i18n = admin ? 'goDataset' : 'goDatasetStudent';
     $('goDatasetText').textContent = t($('goDatasetText').dataset.i18n);
+    $('phrasesDescriptionText').dataset.i18n = admin ? 'phrasesDescription' : 'phrasesDescriptionStudent';
+    $('phrasesDescriptionText').textContent = t($('phrasesDescriptionText').dataset.i18n);
     document.querySelector('.sample-panel').hidden = !admin;
+    $('phraseCreate').hidden = !admin;
     $('datasetReadOnly').hidden = admin;
     $('useRecordingButton').hidden = !admin || !clip;
     renderControls();

@@ -1,4 +1,12 @@
-import {index, integer, primaryKey, sqliteTable, text} from 'drizzle-orm/sqlite-core';
+import {index, integer, primaryKey, sqliteTable, text, uniqueIndex} from 'drizzle-orm/sqlite-core';
+
+export const customPhrases = sqliteTable('custom_phrases', {
+  id: text('id').primaryKey(),
+  textRu: text('text_ru').notNull(),
+  textEn: text('text_en').notNull().default(''),
+  nameKey: text('name_key').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, table => [uniqueIndex('idx_custom_phrases_name_key').on(table.nameKey)]);
 
 export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(),

@@ -20,7 +20,8 @@ mkdirSync('dist/server', {recursive: true});
 mkdirSync('dist/.openai', {recursive: true});
 const config = JSON.parse(readFileSync('site/config.json', 'utf8'));
 const worker = 'const SITE_CONFIG = ' + JSON.stringify(config) + ';\nconst SITE_ASSETS = ' + JSON.stringify(assets) + ';\n' +
-  readFileSync('site/accounts.js', 'utf8') + '\n' + readFileSync('site/lessons.js', 'utf8') + '\n' + readFileSync('site/worker.js', 'utf8');
+  readFileSync('site/accounts.js', 'utf8') + '\n' + readFileSync('site/phrases.js', 'utf8') + '\n' +
+  readFileSync('site/lessons.js', 'utf8') + '\n' + readFileSync('site/worker.js', 'utf8');
 writeFileSync('dist/server/index.js', worker);
 copyFileSync('.openai/hosting.json', 'dist/.openai/hosting.json');
 console.log(`Built SignVision Site with ${sources.length} assets`);

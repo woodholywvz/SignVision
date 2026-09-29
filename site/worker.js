@@ -1,8 +1,7 @@
-const PHRASES = SITE_CONFIG.phrases;
-const IDS = new Set(PHRASES.map(phrase => phrase.id));
 const FEATURES = 284;
 const HAND = 127;
-const MAX_SAMPLES = 100;
+const MAX_SAMPLES = 300;
+const MAX_SAMPLES_PER_PHRASE = 25;
 const headers = {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'};
 const sampleCache = new WeakMap();
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers});
@@ -24,9 +23,10 @@ function trimSequence(value) {
   return value.slice(first, last + 1);
 }
 
-async function samples(bucket) {
+async function samples(bucket, catalog) {
+  const ids = phraseIds(catalog);
   const cached = sampleCache.get(bucket);
-  if (cached && Date.now() - cached.at < 10000) return cached.items;
+  if (cached && Date.now() - cached.at < 10000) return cached.items.filter(item => ids.has(item.phrase_id));
   const found = [];
   let cursor;
   do {
@@ -35,16 +35,16 @@ async function samples(bucket) {
       const response = await bucket.get(object.key);
       if (!response) continue;
       const sample = await response.json();
-      if (IDS.has(sample.phrase_id) && validSequence(sample.sequence)) found.push({...sample, key: object.key, sample_id: object.key.split('/').pop().replace(/\.json$/, '')});
+      if (typeof sample.phrase_id === 'string' && validSequence(sample.sequence)) found.push({...sample, key: object.key, sample_id: object.key.split('/').pop().replace(/\.json$/, '')});
     }
     cursor = listed.truncated ? listed.cursor : null;
   } while (cursor && found.length < MAX_SAMPLES);
   sampleCache.set(bucket, {at: Date.now(), items: found});
-  return found;
+  return found.filter(item => ids.has(item.phrase_id));
 }
-function counts(items) {
-  const count = Object.fromEntries(PHRASES.map(phrase => [phrase.id, 0]));
-  for (const item of items) count[item.phrase_id]++;
+function counts(items, catalog) {
+  const count = Object.fromEntries(catalog.map(phrase => [phrase.id, 0]));
+  for (const item of items) if (Object.hasOwn(count, item.phrase_id)) count[item.phrase_id]++;
   return count;
 }
 function resample(frames, target = 32) {
@@ -129,7 +129,7 @@ function advice(query, reference, quality = {}) {
   }
   return 'hand_shape';
 }
-function predict(sequence, dataset, language, live = false, quality = {}) {
+function predict(sequence, dataset, language, live = false, quality = {}, catalog = BUILTIN_PHRASES) {
   const ru = language !== 'en';
   if (!dataset.length) return {state: 'empty_dataset', phrase_id: null, candidate_id: null, text: ru ? 'Неизвестный жест' : 'Unknown gesture', distance: null, margin: null, reason_code: 'empty_dataset', frames: sequence.length};
   const query = live ? null : resample(sequence);
@@ -171,7 +171,7 @@ function predict(sequence, dataset, language, live = false, quality = {}) {
     return {state, phrase_id, candidate_id, advice_code: candidate_id ? advice(selectedWindow, reference, selectedQuality) : null,
       distance: best, margin, reason_code, frames: sequence.length};
   }
-  const phrase = PHRASES.find(item => item.id === phrase_id);
+  const phrase = catalog.find(item => item.id === phrase_id);
   return {phrase_id, text: phrase ? (ru ? phrase.text : phrase.en) : ru ? 'Неизвестный жест' : 'Unknown gesture', distance: best, margin, reason_code, frames: sequence.length};
 }
 async function body(request) {
@@ -222,43 +222,51 @@ export default {
         if (!env.DB) throw new ApiError('Уроки временно недоступны.', 503);
         return json(await listLessons(request, env));
       }
-      const lessonVideo = path.match(/^\/api\/lessons\/([a-z_]+)\/video$/);
+      const lessonVideo = path.match(/^\/api\/lessons\/([a-z0-9_]+)\/video$/);
       if (lessonVideo && request.method === 'GET') return await serveLessonVideo(env, lessonVideo[1]);
-      if (path === '/api/config' && request.method === 'GET') return json({phrases: PHRASES, counts: counts(await samples(env.BUCKET)), min_frames: 8, sample_fps: 8});
+      if (path === '/api/config' && request.method === 'GET') {
+        const catalog = await phraseCatalog(env.DB);
+        return json({phrases: catalog, counts: counts(await samples(env.BUCKET, catalog), catalog), min_frames: 8, sample_fps: 8});
+      }
       if (path === '/api/admin/users' && request.method === 'GET') return json({users: await usersForAdmin(request, env.DB)});
       if (path === '/api/admin/samples' && request.method === 'GET') {
         await requireAdmin(request, env.DB);
-        return json({samples: (await samples(env.BUCKET)).map(({sample_id, phrase_id, duration_s, created_at}) => ({sample_id, phrase_id, duration_s, created_at}))});
+        const catalog = await phraseCatalog(env.DB);
+        return json({samples: (await samples(env.BUCKET, catalog)).map(({sample_id, phrase_id, duration_s, created_at}) => ({sample_id, phrase_id, duration_s, created_at}))});
       }
       const removeSample = path.match(/^\/api\/admin\/samples\/([0-9a-f-]+)$/);
       if (removeSample && request.method === 'DELETE') {
         await requireAdmin(request, env.DB);
-        const existing = await samples(env.BUCKET);
+        const catalog = await phraseCatalog(env.DB);
+        const existing = await samples(env.BUCKET, catalog);
         const item = existing.find(sample => sample.sample_id === removeSample[1]);
         if (!item) throw new ApiError('Эталон не найден.', 404);
         await env.BUCKET.delete(item.key);
         sampleCache.delete(env.BUCKET);
-        return json({removed: item.sample_id, counts: counts(existing.filter(sample => sample !== item))});
+        return json({removed: item.sample_id, counts: counts(existing.filter(sample => sample !== item), catalog)});
       }
-      const lessonAdmin = path.match(/^\/api\/admin\/lessons\/([a-z_]+)(\/video)?$/);
+      const lessonAdmin = path.match(/^\/api\/admin\/lessons\/([a-z0-9_]+)(\/video)?$/);
       if (lessonAdmin && lessonAdmin[2] && request.method === 'PUT') return json(await uploadLessonVideo(request, env, lessonAdmin[1]));
       if (lessonAdmin && lessonAdmin[2] && request.method === 'DELETE') return json(await deleteLessonVideo(request, env, lessonAdmin[1]));
       if (request.method !== 'POST') return error('Method not allowed', 405);
       const data = await body(request), lang = language(request);
       if (path === '/api/register') return json({account: await registerAccount(request, env, data)});
+      if (path === '/api/admin/phrases') return json({phrase: await createPhrase(request, env, data)}, 201);
       const userRole = path.match(/^\/api\/admin\/users\/([^/]+)\/role$/);
       if (userRole) return json({account: await changeUserRole(request, env.DB, decodeURIComponent(userRole[1]), data.role)});
       if (lessonAdmin && !lessonAdmin[2]) return json(await saveLessonMaterial(request, env, lessonAdmin[1], data));
-      const lessonAction = path.match(/^\/api\/lessons\/([a-z_]+)\/(start|practice)$/);
+      const lessonAction = path.match(/^\/api\/lessons\/([a-z0-9_]+)\/(start|practice)$/);
       if (lessonAction && lessonAction[2] === 'start') return json(await startLesson(request, env, lessonAction[1]));
       if (lessonAction && lessonAction[2] === 'practice') return json(await practiceLesson(request, env, lessonAction[1], data));
       if (path === '/api/samples') {
         await requireAdmin(request, env.DB);
-        if (!IDS.has(data.phrase_id)) return error('Неизвестная фраза');
+        const catalog = await phraseCatalog(env.DB);
+        if (!phraseIds(catalog).has(data.phrase_id)) return error('Неизвестная фраза');
         const trimmed = trimSequence(data.sequence);
         if (!validSequence(trimmed, .65)) return error('Недостаточно кадров или рук в кадре', 422);
-        const existing = await samples(env.BUCKET);
+        const existing = await samples(env.BUCKET, catalog);
         if (existing.length >= MAX_SAMPLES) return error('Достигнут лимит примеров', 413);
+        if (existing.filter(sample => sample.phrase_id === data.phrase_id).length >= MAX_SAMPLES_PER_PHRASE) return error('Достигнут лимит примеров для фразы', 413);
         const id = crypto.randomUUID();
         const sequence = resample(trimmed).map(frame => frame.map(value => Math.round(value * 10000) / 10000));
         const duration_s = Number.isFinite(data.duration_s) && data.duration_s > 0 && data.duration_s <= 60 ? data.duration_s * trimmed.length / data.sequence.length : null;
@@ -266,25 +274,28 @@ export default {
         const saved = {phrase_id: data.phrase_id, sequence, duration_s, created_at: Date.now()};
         await env.BUCKET.put(key, JSON.stringify(saved), {httpMetadata: {contentType: 'application/json'}});
         existing.push({...saved, key, sample_id: id}); sampleCache.set(env.BUCKET, {at: Date.now(), items: existing});
-        return json({sample_id: id, frames: trimmed.length, counts: counts(existing)});
+        return json({sample_id: id, frames: trimmed.length, counts: counts(existing, catalog)});
       }
       if (path === '/api/recognize') {
         const sequence = trimSequence(data.sequence);
         if (!validSequence(sequence)) return error('Недостаточно кадров или рук в кадре', 422);
-        return json(predict(sequence, await samples(env.BUCKET), lang));
+        const catalog = await phraseCatalog(env.DB);
+        return json(predict(sequence, await samples(env.BUCKET, catalog), lang, false, {}, catalog));
       }
       if (path === '/api/live') {
         if (!validSequence(data.sequence, 0) || handRatio(data.sequence) * data.sequence.length < 8) return json({state: 'waiting', phrase_id: null, candidate_id: null});
-        return json(predict(data.sequence, await samples(env.BUCKET), lang, true, {...data.quality, duration_s: data.duration_s}));
+        const catalog = await phraseCatalog(env.DB);
+        return json(predict(data.sequence, await samples(env.BUCKET, catalog), lang, true, {...data.quality, duration_s: data.duration_s}, catalog));
       }
       if (path === '/api/evaluate') {
         if (!Array.isArray(data.items) || data.items.length < 1 || data.items.length > 30) return error('Нужно от 1 до 30 видео');
-        const dataset = await samples(env.BUCKET), results = [];
+        const catalog = await phraseCatalog(env.DB), ids = phraseIds(catalog);
+        const dataset = await samples(env.BUCKET, catalog), results = [];
         for (const item of data.items) {
-          if (!IDS.has(item.expected) && item.expected !== 'unknown') return error('Неизвестная метка');
+          if (!ids.has(item.expected) && item.expected !== 'unknown') return error('Неизвестная метка');
           const sequence = trimSequence(item.sequence);
           if (!validSequence(sequence)) { results.push({file: item.file, expected: item.expected, predicted: null, correct: false, error: 'Недостаточно кадров или рук в кадре'}); continue; }
-          const predicted = predict(sequence, dataset, lang).phrase_id || 'unknown';
+          const predicted = predict(sequence, dataset, lang, false, {}, catalog).phrase_id || 'unknown';
           results.push({file: item.file, expected: item.expected, predicted, correct: predicted === item.expected});
         }
         const correct = results.filter(row => row.correct).length;

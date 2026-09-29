@@ -72,3 +72,37 @@ test('lesson video upload and removal are admin only', async () => {
   assert.equal((await call(env, '/api/admin/lessons/privet/video', undefined, admin, 'DELETE')).status, 200);
   assert.equal((await call(env, '/api/lessons/privet/video', undefined, null)).status, 404);
 });
+
+test('admin-created phrases work in references, recognition, evaluation and lessons', async () => {
+  const env = environment();
+  const details = {text: 'Доброе утро', en: 'Good morning'};
+  assert.equal((await call(env, '/api/admin/phrases', details, student)).status, 403);
+  const created = await call(env, '/api/admin/phrases', details, admin);
+  assert.equal(created.status, 201);
+  const phrase = (await created.json()).phrase;
+  assert.match(phrase.id, /^custom_[0-9a-f]+$/);
+  assert.equal((await call(env, '/api/admin/phrases', {text: ' доброе   утро '}, admin)).status, 409);
+  const config = await call(env, '/api/config');
+  const catalog = await config.json();
+  assert.equal(catalog.phrases.length, 6);
+  assert.equal(catalog.counts[phrase.id], 0);
+  const saved = await call(env, '/api/samples', {phrase_id: phrase.id, sequence}, admin);
+  assert.equal((await saved.json()).counts[phrase.id], 1);
+  const recognized = await call(env, '/api/recognize', {sequence}, student);
+  assert.equal((await recognized.json()).text, 'Доброе утро');
+  const englishRequest = request('/api/recognize', {sequence}, student);
+  englishRequest.headers.set('accept-language', 'en');
+  assert.equal((await (await worker.fetch(englishRequest, env)).json()).text, 'Good morning');
+  const evaluated = await call(env, '/api/evaluate', {items: [{file: 'held-out.webm', expected: phrase.id, sequence}]}, admin);
+  assert.equal((await evaluated.json()).correct, 1);
+  assert.equal((await call(env, `/api/admin/lessons/${phrase.id}`, {instructions_ru: 'Повторите жест.'}, admin)).status, 200);
+  await call(env, '/api/register', {display_name: 'Student'}, student);
+  const lessons = await call(env, '/api/lessons', undefined, student);
+  const listing = await lessons.json();
+  assert.equal(listing.total, 6);
+  assert.equal(listing.lessons.find(item => item.phrase_id === phrase.id).available, true);
+  const practice = await call(env, `/api/lessons/${phrase.id}/practice`, {sequence}, student);
+  assert.equal((await practice.json()).completed, true);
+  const users = await call(env, '/api/admin/users', undefined, admin);
+  assert.equal((await users.json()).users.find(user => user.id === student.id).progress.total, 6);
+});
