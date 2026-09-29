@@ -1,5 +1,5 @@
 import {readFileSync, mkdirSync, writeFileSync, copyFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {createHash} from 'node:crypto';
 
 const sources = [
   ['/index.html', 'site/index.html', 'text/html; charset=utf-8'],
@@ -8,7 +8,12 @@ const sources = [
   ['/static/tracking.js', 'site/tracking.js', 'text/javascript; charset=utf-8'],
   ['/static/app.js', 'site/app.js', 'text/javascript; charset=utf-8'],
 ];
-const assets = Object.fromEntries(sources.map(([url, file, type]) => [url, {body: readFileSync(file, 'utf8'), type}]));
+const revision = createHash('sha256').update(sources.slice(1).map(([, file]) => readFileSync(file)).join('')).digest('hex').slice(0, 10);
+const assets = Object.fromEntries(sources.map(([url, file, type]) => {
+  let body = readFileSync(file, 'utf8');
+  if (url === '/index.html') body = body.replace(/\/static\/(style\.css|i18n\.js|tracking\.js|app\.js)/g, `/static/$1?v=${revision}`);
+  return [url, {body, type}];
+}));
 mkdirSync('dist/server', {recursive: true});
 mkdirSync('dist/.openai', {recursive: true});
 const config = JSON.parse(readFileSync('site/config.json', 'utf8'));

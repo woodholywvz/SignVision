@@ -107,7 +107,7 @@ function language(request) { return request.headers.get('accept-language')?.star
 function serve(path) {
   const asset = SITE_ASSETS[path];
   if (!asset) return new Response('Not found', {status: 404});
-  return new Response(asset.body, {headers: {'content-type': asset.type, 'cache-control': 'public, max-age=3600'}});
+  return new Response(asset.body, {headers: {'content-type': asset.type, 'cache-control': 'no-store'}});
 }
 async function mediapipeAsset(path) {
   const wasm = /^\/mediapipe\/wasm\/vision_wasm_(?:internal|nosimd_internal)\.(?:js|wasm)$/;
