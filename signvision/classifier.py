@@ -64,14 +64,19 @@ def classify(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], *, nei
         return Prediction(None, None, None, "empty_dataset")
     query = resample_sequence(sequence, target_frames)
     ranked = sorted((dtw_distance(query, resample_sequence(data, target_frames)), label) for label, data in samples)
-    nearest = ranked[:max(1, neighbors)]
-    votes: dict[str, list[float]] = {}
-    for distance, label in nearest:
-        votes.setdefault(label, []).append(distance)
-    winner = min(votes, key=lambda label: (-len(votes[label]), np.mean(votes[label])))
-    best = min(distance for distance, label in ranked if label == winner)
-    other = min((distance for distance, label in ranked if label != winner), default=None)
-    margin = None if other is None else other - best
+    # Compare phrases on their nearest examples so an overrepresented class
+    # cannot win by sample count alone. Nearby examples smooth the class score.
+    by_phrase: dict[str, list[float]] = {}
+    for distance, label in ranked:
+        by_phrase.setdefault(label, []).append(distance)
+    scores = {}
+    for label, distances in by_phrase.items():
+        close = [value for value in distances if value <= distances[0] + 0.05][:max(1, neighbors)]
+        scores[label] = 0.8 * distances[0] + 0.2 * float(np.mean(close))
+    ordered = sorted(scores, key=scores.get)
+    winner = ordered[0]
+    best = scores[winner]
+    margin = scores[ordered[1]] - best if len(ordered) > 1 else None
     if best > max_distance:
         return Prediction(None, best, margin, "too_far")
     if margin is not None and margin < min_margin:

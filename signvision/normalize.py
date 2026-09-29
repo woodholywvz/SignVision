@@ -46,6 +46,8 @@ def frame_features(hands: dict[str, object], pose: object | None) -> np.ndarray:
             wrists.append(np.zeros(3, dtype=np.float32))
             continue
         global_points = (hand - origin) / scale
+        # Hand z is wrist-relative; pose z is hip-relative and cannot be subtracted from it.
+        global_points[:, 2] = (hand[:, 2] - hand[0, 2]) / scale
         palm_scale = max(float(np.linalg.norm(hand[0, :2] - hand[9, :2])), EPS)
         local_points = (hand - hand[0]) / palm_scale
         parts.append(np.concatenate(([1.0], global_points.ravel(), local_points.ravel())).astype(np.float32))

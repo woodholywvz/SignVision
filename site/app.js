@@ -16,6 +16,7 @@ const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), stat
   renderTracking();
 });
 const t = (key, values = {}) => (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
+const errorText = error => error.message === 'videoTooLong' ? t('videoTooLong') : error.message;
 function countText(number, kind) {
   const category = new Intl.PluralRules(locale).select(number);
   const ending = category === 'one' ? 'One' : category === 'few' ? 'Few' : 'Many';
@@ -215,10 +216,10 @@ function stopLive() {
 }
 tracker.onFrame = null;
 function liveFrame(frame, now, quality) {
-  if (!live || now - liveFrameAt < 115) return;
+  if (!live || now - liveFrameAt < 125) return;
   liveFrameAt = now;
   liveFrames.push({frame, at: now});
-  while (liveFrames.length > 25 || (liveFrames.length && now - liveFrames[0].at > 3100)) liveFrames.shift();
+  while (liveFrames.length > 72 || (liveFrames.length && now - liveFrames[0].at > 8500)) liveFrames.shift();
   if (quality) liveQuality = quality;
   if (liveFrames.length < 12 || livePending || now - liveSentAt < 1250) return;
   liveSentAt = now; livePending = true;
@@ -262,7 +263,7 @@ $('recordButton').addEventListener('click', () => {
       const sequence = await window.GestureEngine.extract(clip);
       const prediction = await api('/api/recognize', {sequence});
       resultState = {phase: prediction.phrase_id ? 'recognized' : 'unknown', prediction}; renderResult();
-    } catch (error) { resultState = {phase: 'error', error: error.message}; renderResult(); }
+    } catch (error) { resultState = {phase: 'error', error: errorText(error)}; renderResult(); }
     finally { busy = false; renderControls(); }
   };
   try { recorder.start(); }
@@ -279,14 +280,14 @@ $('saveButton').addEventListener('click', async () => {
   if (!clip || busy) return;
   busy = true; renderControls();
   try { setFeedback(t('saving')); const sequence = await window.GestureEngine.extract(clip); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); setFeedback(t('saved', {n: data.frames})); }
-  catch (error) { setFeedback(error.message, true); }
+  catch (error) { setFeedback(errorText(error), true); }
   finally { busy = false; renderControls(); }
 });
 $('sampleFile').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file || busy) return;
   busy = true; renderControls();
   try { setFeedback(t('uploading')); const sequence = await window.GestureEngine.extract(file); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); setFeedback(t('uploaded', {n: data.frames})); }
-  catch (error) { setFeedback(error.message, true); }
+  catch (error) { setFeedback(errorText(error), true); }
   finally { event.target.value = ''; busy = false; renderControls(); }
 });
 $('evalFiles').addEventListener('change', event => {
@@ -307,7 +308,7 @@ $('evalButton').addEventListener('click', async () => {
     for (const [index, file] of files.entries()) items.push({file: file.name, expected: $('evalLabels').querySelector(`select[data-index="${index}"]`).value, sequence: await window.GestureEngine.extract(file)});
     evalState = {phase: 'done', data: await api('/api/evaluate', {items})};
   }
-  catch (error) { evalState = {phase: 'error', error: error.message}; }
+  catch (error) { evalState = {phase: 'error', error: errorText(error)}; }
   busy = false; renderControls(); renderEvaluation();
 });
 applyLocale(); renderControls(); refresh().catch(error => setFeedback(error.message, true));

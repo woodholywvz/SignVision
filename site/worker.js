@@ -8,10 +8,20 @@ const sampleCache = new WeakMap();
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers});
 const error = (message, status = 400) => json({detail: message}, status);
 
-function validSequence(value) {
+function handRatio(value) { return value.filter(frame => frame[0] > .5 || frame[HAND] > .5).length / value.length; }
+function validSequence(value, minHandRatio = .35) {
   return Array.isArray(value) && value.length >= 8 && value.length <= 96 &&
     value.every(frame => Array.isArray(frame) && frame.length === FEATURES && frame.every(Number.isFinite)) &&
-    value.filter(frame => frame[0] > .5 || frame[HAND] > .5).length / value.length >= .35;
+    handRatio(value) >= minHandRatio;
+}
+function trimSequence(value) {
+  if (!Array.isArray(value)) return value;
+  const visible = frame => Array.isArray(frame) && (frame[0] > .5 || frame[HAND] > .5);
+  const first = value.findIndex(visible);
+  if (first < 0) return [];
+  let last = value.length - 1;
+  while (last > first && !visible(value[last])) last--;
+  return value.slice(first, last + 1);
 }
 
 async function samples(bucket) {
@@ -91,6 +101,16 @@ function motion(sequence) {
   const offset = first[0] > .5 && last[0] > .5 ? FEATURES - 6 : FEATURES - 3;
   return [last[offset] - first[offset], last[offset + 1] - first[offset + 1]];
 }
+function pathSpeed(sequence, duration) {
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  let path = 0;
+  for (let i = 1; i < sequence.length; i++) {
+    const a = sequence[i - 1], b = sequence[i];
+    const offset = a[0] > .5 && b[0] > .5 ? FEATURES - 6 : a[HAND] > .5 && b[HAND] > .5 ? FEATURES - 3 : null;
+    if (offset !== null) path += Math.hypot(b[offset] - a[offset], b[offset + 1] - a[offset + 1]);
+  }
+  return path / duration;
+}
 function advice(query, reference, quality = {}) {
   const coverage = query.filter(frame => frame[0] > .5 || frame[HAND] > .5).length / query.length;
   if (coverage < .65) return 'hands_visible';
@@ -100,34 +120,55 @@ function advice(query, reference, quality = {}) {
   const qm = Math.hypot(...q), rm = Math.hypot(...r);
   if (rm > .2 && qm > .2 && q[0] * r[0] + q[1] * r[1] < -.05) return 'direction';
   if (Number.isFinite(reference.duration_s) && Number.isFinite(quality.duration_s) && reference.duration_s > .5) {
-    const ratio = quality.duration_s / reference.duration_s;
-    if (ratio < .7) return 'slower';
-    if (ratio > 1.5) return 'faster';
+    const referenceSpeed = pathSpeed(reference.sequence, reference.duration_s);
+    const querySpeed = pathSpeed(query, quality.duration_s);
+    if (referenceSpeed > .12 && querySpeed > .12) {
+      if (querySpeed > referenceSpeed * 1.5) return 'slower';
+      if (querySpeed < referenceSpeed * .65) return 'faster';
+    }
   }
   return 'hand_shape';
 }
 function predict(sequence, dataset, language, live = false, quality = {}) {
   const ru = language !== 'en';
   if (!dataset.length) return {state: 'empty_dataset', phrase_id: null, candidate_id: null, text: ru ? 'Неизвестный жест' : 'Unknown gesture', distance: null, margin: null, reason_code: 'empty_dataset', frames: sequence.length};
-  const query = resample(sequence);
-  const ranked = dataset.map(item => ({label: item.phrase_id, value: distance(query, resample(item.sequence)), reference: item})).sort((a, b) => a.value - b.value);
-  const nearest = ranked.slice(0, SITE_CONFIG.recognition.neighbors), votes = new Map();
-  for (const item of nearest) {
-    const value = votes.get(item.label) || {count: 0, total: 0};
-    value.count++; value.total += item.value; votes.set(item.label, value);
+  const query = live ? null : resample(sequence);
+  const fps = live && Number.isFinite(quality.duration_s) && quality.duration_s > 0 ? (sequence.length - 1) / quality.duration_s : 8;
+  const windows = new Map();
+  const ranked = dataset.flatMap(item => {
+    const windowSize = live ? Math.max(8, Math.round((item.duration_s || 2.5) * fps)) : sequence.length;
+    if (windowSize > sequence.length) return [];
+    if (!windows.has(windowSize)) {
+      const raw = sequence.slice(-windowSize);
+      windows.set(windowSize, {raw, normalized: handRatio(raw) >= .35 ? resample(raw) : null});
+    }
+    const window = windows.get(windowSize);
+    if (!window.normalized) return [];
+    return [{label: item.phrase_id, value: distance(live ? window.normalized : query, resample(item.sequence)), reference: item, window: window.raw}];
+  }).sort((a, b) => a.value - b.value);
+  if (!ranked.length) return {state: 'waiting', phrase_id: null, candidate_id: null, reason_code: 'waiting', frames: sequence.length};
+  const byPhrase = new Map();
+  for (const item of ranked) {
+    if (!byPhrase.has(item.label)) byPhrase.set(item.label, []);
+    byPhrase.get(item.label).push(item);
   }
-  const winner = [...votes].sort((a, b) => b[1].count - a[1].count || a[1].total / a[1].count - b[1].total / b[1].count)[0][0];
-  const best = ranked.find(item => item.label === winner).value;
-  const other = ranked.find(item => item.label !== winner)?.value;
-  const margin = other === undefined ? null : other - best;
+  const classes = [...byPhrase].map(([label, items]) => {
+    const close = items.filter(item => item.value <= items[0].value + .05).slice(0, SITE_CONFIG.recognition.neighbors);
+    const score = .8 * items[0].value + .2 * close.reduce((sum, item) => sum + item.value, 0) / close.length;
+    return {label, score, reference: items[0].reference, window: items[0].window};
+  }).sort((a, b) => a.score - b.score);
+  const winner = classes[0].label, best = classes[0].score;
+  const margin = classes.length > 1 ? classes[1].score - best : null;
   const reason_code = best > SITE_CONFIG.recognition.max_distance ? 'too_far' : margin !== null && margin < SITE_CONFIG.recognition.min_margin ? 'ambiguous' : 'recognized';
   const phrase_id = reason_code === 'recognized' ? winner : null;
   if (live) {
     const plausible = best <= SITE_CONFIG.recognition.tentative_distance;
     const state = reason_code === 'recognized' ? 'recognized' : plausible ? 'tentative' : 'unknown';
     const candidate_id = state === 'tentative' ? winner : null;
-    const reference = ranked.find(item => item.label === winner)?.reference;
-    return {state, phrase_id, candidate_id, advice_code: candidate_id ? advice(sequence, reference, quality) : null,
+    const reference = classes[0].reference;
+    const selectedWindow = classes[0].window;
+    const selectedQuality = {...quality, duration_s: (selectedWindow.length - 1) / fps};
+    return {state, phrase_id, candidate_id, advice_code: candidate_id ? advice(selectedWindow, reference, selectedQuality) : null,
       distance: best, margin, reason_code, frames: sequence.length};
   }
   const phrase = PHRASES.find(item => item.id === phrase_id);
@@ -176,23 +217,25 @@ export default {
       const data = await body(request), lang = language(request);
       if (path === '/api/samples') {
         if (!IDS.has(data.phrase_id)) return error('Неизвестная фраза');
-        if (!validSequence(data.sequence)) return error('Недостаточно кадров или рук в кадре', 422);
+        const trimmed = trimSequence(data.sequence);
+        if (!validSequence(trimmed, .65)) return error('Недостаточно кадров или рук в кадре', 422);
         const existing = await samples(env.BUCKET);
         if (existing.length >= MAX_SAMPLES) return error('Достигнут лимит примеров', 413);
         const id = crypto.randomUUID();
-        const sequence = resample(data.sequence).map(frame => frame.map(value => Math.round(value * 10000) / 10000));
-        const duration_s = Number.isFinite(data.duration_s) && data.duration_s > 0 && data.duration_s <= 60 ? data.duration_s : null;
+        const sequence = resample(trimmed).map(frame => frame.map(value => Math.round(value * 10000) / 10000));
+        const duration_s = Number.isFinite(data.duration_s) && data.duration_s > 0 && data.duration_s <= 60 ? data.duration_s * trimmed.length / data.sequence.length : null;
         const saved = {phrase_id: data.phrase_id, sequence, duration_s};
         await env.BUCKET.put(`samples/${data.phrase_id}/${id}.json`, JSON.stringify(saved), {httpMetadata: {contentType: 'application/json'}});
         existing.push(saved); sampleCache.set(env.BUCKET, {at: Date.now(), items: existing});
-        return json({sample_id: id, frames: data.sequence.length, counts: counts(existing)});
+        return json({sample_id: id, frames: trimmed.length, counts: counts(existing)});
       }
       if (path === '/api/recognize') {
-        if (!validSequence(data.sequence)) return error('Недостаточно кадров или рук в кадре', 422);
-        return json(predict(data.sequence, await samples(env.BUCKET), lang));
+        const sequence = trimSequence(data.sequence);
+        if (!validSequence(sequence)) return error('Недостаточно кадров или рук в кадре', 422);
+        return json(predict(sequence, await samples(env.BUCKET), lang));
       }
       if (path === '/api/live') {
-        if (!validSequence(data.sequence)) return json({state: 'waiting', phrase_id: null, candidate_id: null});
+        if (!validSequence(data.sequence, 0) || handRatio(data.sequence) * data.sequence.length < 8) return json({state: 'waiting', phrase_id: null, candidate_id: null});
         return json(predict(data.sequence, await samples(env.BUCKET), lang, true, {...data.quality, duration_s: data.duration_s}));
       }
       if (path === '/api/evaluate') {
@@ -200,8 +243,9 @@ export default {
         const dataset = await samples(env.BUCKET), results = [];
         for (const item of data.items) {
           if (!IDS.has(item.expected) && item.expected !== 'unknown') return error('Неизвестная метка');
-          if (!validSequence(item.sequence)) { results.push({file: item.file, expected: item.expected, predicted: null, correct: false, error: 'Недостаточно кадров или рук в кадре'}); continue; }
-          const predicted = predict(item.sequence, dataset, lang).phrase_id || 'unknown';
+          const sequence = trimSequence(item.sequence);
+          if (!validSequence(sequence)) { results.push({file: item.file, expected: item.expected, predicted: null, correct: false, error: 'Недостаточно кадров или рук в кадре'}); continue; }
+          const predicted = predict(sequence, dataset, lang).phrase_id || 'unknown';
           results.push({file: item.file, expected: item.expected, predicted, correct: predicted === item.expected});
         }
         const correct = results.filter(row => row.correct).length;

@@ -39,6 +39,18 @@ def test_translation_and_scale_normalization():
     assert hand_present(a)
 
 
+def test_hand_depth_does_not_depend_on_pose_depth():
+    fingers = hand()
+    for index, point in enumerate(fingers):
+        point.z = index * 0.01
+    body = pose()
+    for point in body:
+        point.z = 0.8
+    result = frame_features({"Left": fingers}, body)
+    assert result[3] == 0
+    assert result[-6 + 2] == 0
+
+
 def test_variable_length_resampling_and_missing_hand():
     visible = frame_features({"Left": hand()}, pose())
     missing = frame_features({}, pose())
@@ -64,3 +76,11 @@ def test_dtw_handles_length_change_and_unknown():
 def test_invalid_empty_sequence():
     with pytest.raises(ValueError):
         resample_sequence([])
+
+
+def test_more_examples_of_wrong_phrase_do_not_outvote_exact_match():
+    exact = np.stack([frame_features({"Left": hand(i * 0.01)}, pose()) for i in range(12)])
+    other = np.stack([frame_features({"Left": hand(0.12 + i * 0.01)}, pose()) for i in range(12)])
+    result = classify(exact, [("correct", exact), ("other", other), ("other", other)],
+                      neighbors=3, max_distance=0.30, min_margin=0.05)
+    assert result.phrase_id == "correct"

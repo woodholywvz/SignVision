@@ -68,4 +68,19 @@ test('clip extraction samples a long recording without processing every source f
   assert.equal(poseCalls, 32);
   assert.equal(capture.width, 512);
   assert.equal(sequence[0][0], 1);
+  video.duration = 9;
+  await assert.rejects(window.GestureEngine.extract({}), /videoTooLong/);
+  assert.equal(handCalls, 64);
+});
+
+test('hand depth is not mixed with pose depth', () => {
+  const window = {};
+  const context = vm.createContext({window});
+  vm.runInContext(fs.readFileSync('site/tracking.js', 'utf8') + '\nwindow.testFeatures = features;', context);
+  const hand = Array.from({length: 21}, (_, i) => ({x: .3 + i * .002, y: .4, z: i * .01}));
+  const pose = Array.from({length: 33}, () => ({x: .5, y: .5, z: .8}));
+  pose[11].x = .4; pose[12].x = .6;
+  const frame = window.testFeatures({hands: {Left: hand}, pose});
+  assert.equal(frame[3], 0);
+  assert.equal(frame[280], 0);
 });

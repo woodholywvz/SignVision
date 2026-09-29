@@ -57,7 +57,8 @@ function features(detection) {
   const output = [], wrists = [];
   for (const hand of [left, right]) {
     if (!hand) { output.push(...Array(127).fill(0)); wrists.push(0, 0, 0); continue; }
-    const global = hand.flatMap(p => p.map((n, k) => (n - origin[k]) / scale));
+    // Hand z is wrist-relative in MediaPipe; pose z uses a different origin.
+    const global = hand.flatMap(p => [(p[0] - origin[0]) / scale, (p[1] - origin[1]) / scale, (p[2] - hand[0][2]) / scale]);
     const palm = Math.max(norm(hand[0], hand[9]), 1e-5);
     const local = hand.flatMap(p => p.map((n, k) => (n - hand[0][k]) / palm));
     output.push(1, ...global, ...local); wrists.push(...global.slice(0, 3));
@@ -101,7 +102,7 @@ window.LiveTracking = class {
     catch (error) { console.error('MediaPipe initialization failed', error); if (run === this.run) this.fail('tracking_failed'); return; }
     clearTimeout(this.watchdog);
     if (!this.active || run !== this.run) return;
-    this.frameIndex = 0; this.lastPose = null; this.lastHands = -1; this.lastStatusAt = 0;
+    this.frameIndex = 0; this.lastPose = null; this.poseMisses = 0; this.lastHands = -1; this.lastStatusAt = 0;
     const schedule = () => {
       if (!this.active || run !== this.run) return;
       if (typeof this.video.requestVideoFrameCallback === 'function') this.frameHandle = this.video.requestVideoFrameCallback(tick);
@@ -118,7 +119,10 @@ window.LiveTracking = class {
           this.captureContext.drawImage(this.video, 0, 0, width, height);
           const refreshPose = this.frameIndex++ % LIVE_POSE_INTERVAL === 0;
           const detection = detect(this.capture, refreshPose);
-          if (refreshPose) this.lastPose = detection.pose;
+          if (refreshPose) {
+            this.poseMisses = detection.pose ? 0 : this.poseMisses + 1;
+            if (detection.pose || this.poseMisses >= 2) this.lastPose = detection.pose;
+          }
           detection.pose = this.lastPose;
           draw(this.overlay, this.video, detection);
           const now = performance.now(), fps = this.lastResult ? Math.min(30, 1000 / (now - this.lastResult)).toFixed(1) : '—';
@@ -182,13 +186,14 @@ window.GestureEngine = {
         duration = video.currentTime;
       }
       if (!Number.isFinite(duration) || duration <= 0) throw new Error('Не удалось прочитать длительность видео');
+      if (duration > 8.25) throw new Error('videoTooLong');
       const count = Math.min(64, Math.max(1, Math.floor(duration * CLIP_FPS)));
       const sequence = [];
       const capture = document.createElement('canvas');
       capture.width = Math.min(LIVE_WIDTH, video.videoWidth);
       capture.height = Math.round(capture.width * video.videoHeight / video.videoWidth);
       const context = capture.getContext('2d', {alpha: false});
-      let lastPose = null;
+      let lastPose = null, poseMisses = 0;
       for (let i = 0; i < count; i++) {
         const time = Math.min(duration - .001, i / CLIP_FPS);
         if (Math.abs(video.currentTime - time) > .001) {
@@ -198,7 +203,10 @@ window.GestureEngine = {
         context.drawImage(video, 0, 0, capture.width, capture.height);
         const refreshPose = i % 2 === 0;
         const detection = detect(capture, refreshPose);
-        if (refreshPose) lastPose = detection.pose;
+        if (refreshPose) {
+          poseMisses = detection.pose ? 0 : poseMisses + 1;
+          if (detection.pose || poseMisses >= 2) lastPose = detection.pose;
+        }
         detection.pose = lastPose;
         sequence.push(features(detection));
         if (i % 6 === 0) await new Promise(resolve => setTimeout(resolve, 0));
