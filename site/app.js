@@ -46,6 +46,7 @@ function renderCatalog() {
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   $('datasetStatus').textContent = t('datasetCount', {count: countText(total, 'example')});
   $('totalCount').textContent = countText(total, 'example');
+  renderHomeStatus();
   $('phraseGrid').replaceChildren(...phrases.map((phrase, index) => {
     const card = document.createElement('button'); card.type = 'button'; card.className = 'phrase-card';
     card.classList.toggle('selected', $('phraseSelect').value === phrase.id);
@@ -56,6 +57,15 @@ function renderCatalog() {
     const count = document.createElement('small'); count.textContent = countText(counts[phrase.id] || 0, 'recording');
     card.append(number, title, count); return card;
   }));
+}
+function renderHomeStatus() {
+  const ready = Object.values(counts).some(Boolean);
+  $('homeStatus').textContent = t(ready ? 'homeReady' : 'homeNeedsExamples');
+  $('homeStatusDetail').textContent = t(ready ? 'homeReadyDetail' : 'homeNeedsExamplesDetail');
+  $('homeTranslateButton').textContent = t(ready ? 'homeOpenTranslator' : window.SignVisionLearning?.isAdmin() ? 'homeAddExamples' : 'homeExploreLessons');
+  $('homeTranslateButton').dataset.go = ready ? 'studio' : window.SignVisionLearning?.isAdmin() ? 'dataset' : 'lessons';
+  $('homeTranslateButton').onclick = () => setPanel($('homeTranslateButton').dataset.go);
+  $('homeStatus').closest('.home-readiness').classList.toggle('needs-examples', !ready);
 }
 function renderResult() {
   const {prediction, error} = resultState;
@@ -122,7 +132,7 @@ function applyLocale() {
   $('cameraState').classList.toggle('connected', !!stream);
   const selected = $('phraseSelect').value; options($('phraseSelect'), false, selected);
   document.querySelectorAll('#evalLabels select').forEach(select => options(select, true, select.value));
-  if (phrases.length) renderCatalog(); else $('datasetStatus').textContent = t('loadingDataset');
+  if (phrases.length) renderCatalog(); else { $('datasetStatus').textContent = t('loadingDataset'); $('homeStatus').textContent = t('homeLoading'); $('homeStatusDetail').textContent = ''; }
   $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
   $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking(); renderControls(); window.SignVisionLearning?.render();
 }
@@ -199,7 +209,7 @@ function stopCamera() {
 }
 function setPanel(name, fromHistory = false) {
   if (recorder?.state === 'recording') { setFeedback(t('finishRecordingFirst')); return; }
-  if (!['studio', 'dataset', 'lessons', 'evaluation', 'admin', 'account'].includes(name)) name = 'studio';
+  if (!['home', 'studio', 'dataset', 'lessons', 'evaluation', 'admin', 'account'].includes(name)) name = 'home';
   if (name === 'admin' && !window.SignVisionLearning?.isAdmin()) name = 'account';
   const current = document.querySelector('[data-panel]:not([hidden])')?.dataset.panel;
   if (name !== 'studio') stopCamera();
@@ -212,7 +222,7 @@ function setPanel(name, fromHistory = false) {
   if (current !== name) {
     if (!fromHistory) {
       const url = new URL(location.href);
-      if (name === 'studio') url.searchParams.delete('tab'); else url.searchParams.set('tab', name);
+      if (name === 'home') url.searchParams.delete('tab'); else url.searchParams.set('tab', name);
       history.pushState(null, '', url);
     }
     window.scrollTo(0, 0);
@@ -220,7 +230,8 @@ function setPanel(name, fromHistory = false) {
 }
 document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => setPanel(button.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => setPanel(button.dataset.go));
-window.addEventListener('popstate', () => setPanel(new URLSearchParams(location.search).get('tab') || 'studio', true));
+$('homeTrackButton').onclick = () => { setPanel('studio'); $('trackButton').click(); };
+window.addEventListener('popstate', () => setPanel(new URLSearchParams(location.search).get('tab') || 'home', true));
 $('phraseSelect').addEventListener('change', renderCatalog);
 $('newPhraseForm').addEventListener('submit', async event => {
   event.preventDefault();

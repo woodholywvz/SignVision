@@ -12,21 +12,33 @@
 <body>
   <a class="skip-link" href="#main" data-i18n="skipToContent">К содержимому</a>
   <header class="site-header"><div class="header-inner">
-    <a class="brand" href="/">SignVision<span class="brand-caption" data-i18n="brandCaption">Русский жестовый язык</span></a>
+    <a class="brand" href="/">Sign<span>Vision</span></a>
+    <nav class="tabs" aria-label="Разделы" data-i18n-aria-label="sections">
+      <button type="button" class="tab active" data-tab="home" aria-current="page" data-i18n="navHome">Главная</button>
+      <button type="button" class="tab" data-tab="studio" data-i18n="navStudio">Переводчик</button>
+      <button type="button" class="tab" data-tab="lessons" data-i18n="navLessons">Уроки</button>
+      <button type="button" class="tab" data-tab="dataset" data-i18n="navDataset">Словарь</button>
+      <button type="button" class="tab" data-tab="evaluation" data-i18n="navEvaluation">Точность</button>
+      <button type="button" class="tab" data-tab="admin" data-i18n="navAdmin" hidden>Управление</button>
+    </nav>
     <div class="header-actions"><button type="button" id="themeButton" class="header-action" aria-label="Тёмная тема">◐</button><div class="lang-switch" role="group" aria-label="Язык" data-i18n-aria-label="language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><a id="signInLink" class="header-action" href="/signin-with-chatgpt?return_to=%2F" data-i18n="signIn">Войти</a><button type="button" id="accountButton" class="header-action" data-tab="account" hidden>Профиль</button></div>
   </div></header>
   <main class="app-shell" id="main">
-    <nav class="tabs" aria-label="Разделы" data-i18n-aria-label="sections">
-      <button type="button" class="tab active" data-tab="studio" aria-current="page" data-i18n="navStudio">Распознавание</button>
-      <button type="button" class="tab" data-tab="dataset" data-i18n="navDataset">Эталонные жесты</button>
-      <button type="button" class="tab" data-tab="lessons" data-i18n="navLessons">Уроки</button>
-      <button type="button" class="tab" data-tab="evaluation" data-i18n="navEvaluation">Проверка точности</button>
-      <button type="button" class="tab" data-tab="admin" data-i18n="navAdmin" hidden>Управление</button>
-      <span class="dataset-status" id="datasetStatus" aria-live="polite"></span>
-    </nav>
+    <span class="dataset-status" id="datasetStatus" aria-live="polite"></span>
     <p class="feedback" id="feedback" role="status" aria-live="polite"></p>
 
-    <section data-panel="studio" id="studio">
+    <section data-panel="home" class="home-panel">
+      <div class="home-hero">
+        <div class="home-intro"><span class="home-eyebrow" data-i18n="homeEyebrow">Русский жестовый язык</span><h1 data-i18n="homeTitle">Понимать без барьеров</h1><p data-i18n="homeDescription">Переводите жесты в текст и изучайте фразы в своём темпе.</p><div class="home-actions"><button type="button" class="button primary" data-go="studio" data-i18n="homeStart">Начать перевод</button><button type="button" class="button outline" data-go="lessons" data-i18n="homeLessonsButton">Перейти к урокам</button></div></div>
+        <div class="home-translate-card"><div class="home-card-top"><span data-i18n="homeTranslateTitle">Жесты в текст</span><span class="home-card-mark" aria-hidden="true">↗</span></div><div class="home-readiness"><i aria-hidden="true"></i><div><strong id="homeStatus" data-i18n="homeLoading">Проверяем готовность…</strong><small id="homeStatusDetail"></small></div></div><div class="home-translation-preview"><span data-i18n="homePreviewLabel">Результат перевода</span><strong data-i18n="homePreviewText">Здесь появится распознанная фраза</strong></div><div class="home-translate-actions"><button type="button" class="button primary" id="homeTranslateButton" data-go="studio" data-i18n="homeOpenTranslator">Открыть переводчик</button><button type="button" class="home-icon-button" id="homeTrackButton" data-i18n="homeTrack">Точки рук</button></div></div>
+      </div>
+      <div class="home-section-heading"><div><h2 data-i18n="homeYourLessons">Ваши уроки</h2><p data-i18n="homeLessonsDescription">Начните с простых фраз и постепенно расширяйте словарь.</p></div><button type="button" class="home-section-link" data-go="lessons"><span data-i18n="homeAllLessons">Все уроки</span><span aria-hidden="true">→</span></button></div>
+      <div id="homeLessonList" class="home-lesson-list" aria-live="polite"></div>
+      <div class="home-section-heading home-features-heading"><div><h2 data-i18n="homeFeatures">Возможности</h2><p data-i18n="homeFeaturesDescription">Всё для перевода, обучения и проверки результата.</p></div></div>
+      <div class="home-features"><button type="button" class="home-feature" data-go="studio"><span class="home-feature-icon" aria-hidden="true">⌁</span><span><strong data-i18n="homeFeatureTranslate">Переводчик</strong><small data-i18n="homeFeatureTranslateText">Распознавайте жесты с камеры</small></span><span class="home-feature-arrow" aria-hidden="true">→</span></button><button type="button" class="home-feature" data-go="lessons"><span class="home-feature-icon" aria-hidden="true">▤</span><span><strong data-i18n="homeFeatureLessons">Уроки</strong><small data-i18n="homeFeatureLessonsText">Изучайте фразы и сохраняйте прогресс</small></span><span class="home-feature-arrow" aria-hidden="true">→</span></button><button type="button" class="home-feature" data-go="dataset"><span class="home-feature-icon" aria-hidden="true">▦</span><span><strong data-i18n="homeFeatureDictionary">Словарь</strong><small data-i18n="homeFeatureDictionaryText">Смотрите фразы и доступные эталоны</small></span><span class="home-feature-arrow" aria-hidden="true">→</span></button></div>
+    </section>
+
+    <section data-panel="studio" id="studio" hidden>
       <div class="page-heading"><h1 data-i18n="studioTitle">Покажите жест</h1><p data-i18n="studioDescription">Включите камеру, запишите одну фразу и получите результат.</p><p id="practiceNotice" class="practice-notice" hidden></p></div>
       <div class="workspace">
         <section class="camera-panel" aria-label="Камера" data-i18n-aria-label="camera">

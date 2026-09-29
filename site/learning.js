@@ -68,7 +68,22 @@
     $('phraseCreate').hidden = !admin;
     $('datasetReadOnly').hidden = admin;
     $('useRecordingButton').hidden = !admin || !clip;
+    renderHomeStatus();
     renderControls();
+  }
+  function renderHomeLessons() {
+    const list = $('homeLessonList'); list.replaceChildren();
+    if (!state.lessons.length) { list.append(element('p', 'muted', t('homeLessonsLoading'))); return; }
+    state.lessons.slice(0, 5).forEach(lesson => {
+      const card = element('button', 'home-lesson'); card.type = 'button';
+      const number = element('span', 'home-lesson-number', String(lesson.position).padStart(2, '0'));
+      const title = element('strong', '', lessonTitle(lesson));
+      const status = element('small', '', t(lesson.progress === 'completed' ? 'lessonCompleted' : lesson.progress === 'in_progress' ? 'lessonInProgress' : lesson.available ? 'lessonReady' : 'lessonAwaiting'));
+      const line = element('span', 'home-lesson-line'); line.classList.toggle('completed', lesson.progress === 'completed');
+      card.append(number, title, status, line);
+      card.onclick = () => { setPanel('lessons'); selectLesson(lesson.phrase_id, true); };
+      list.append(card);
+    });
   }
   function renderLessons() {
     $('lessonProgressText').textContent = `${state.completed} / ${state.total || state.lessons.length}`;
@@ -200,12 +215,12 @@
       row.append(action); sampleList.append(row);
     });
   }
-  function render() { renderTheme(); renderAccount(); renderLessons(); if (isAdmin()) renderAdmin(); renderPracticeNotice(); renderResult(); }
+  function render() { renderTheme(); renderAccount(); renderLessons(); renderHomeLessons(); if (isAdmin()) renderAdmin(); renderPracticeNotice(); renderResult(); }
   async function refreshLessons() {
     const data = await getJson('/api/lessons');
     state.lessons = data.lessons; state.completed = data.completed; state.total = data.total;
     if (!state.lessons.some(item => item.phrase_id === state.selected)) state.selected = state.lessons.find(item => item.available)?.phrase_id || state.lessons[0]?.phrase_id || null;
-    renderLessons(); if (isAdmin()) renderAdmin();
+    renderLessons(); renderHomeLessons(); if (isAdmin()) renderAdmin();
   }
   async function loadAdmin() {
     if (!isAdmin()) return;
