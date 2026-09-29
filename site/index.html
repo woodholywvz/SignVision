@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fafaf8">
+  <title>SignVision — жесты в текст</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23245c46'/%3E%3Ctext x='8' y='24' font-size='23' fill='white'%3Es%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="site-header"><div class="header-inner">
+    <a class="brand" href="/">SignVision<span class="brand-caption" data-i18n="brandCaption">Русский жестовый язык</span></a>
+    <div class="lang-switch" role="group" aria-label="Язык" data-i18n-aria-label="language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div>
+  </div></header>
+  <main class="app-shell">
+    <nav class="tabs" aria-label="Разделы" data-i18n-aria-label="sections">
+      <button type="button" class="tab active" data-tab="studio" aria-current="page" data-i18n="navStudio">Распознавание</button>
+      <button type="button" class="tab" data-tab="dataset" data-i18n="navDataset">Примеры фраз</button>
+      <button type="button" class="tab" data-tab="evaluation" data-i18n="navEvaluation">Проверка точности</button>
+      <span class="dataset-status" id="datasetStatus" aria-live="polite"></span>
+    </nav>
+    <p class="feedback" id="feedback" role="status" aria-live="polite"></p>
+
+    <section data-panel="studio" id="studio">
+      <div class="page-heading"><h1 data-i18n="studioTitle">Покажите жест</h1><p data-i18n="studioDescription">Включите камеру, запишите одну фразу и получите результат.</p></div>
+      <div class="workspace">
+        <section class="camera-panel" aria-label="Камера" data-i18n-aria-label="camera">
+          <div class="panel-heading"><h2 data-i18n="camera">Камера</h2><div class="camera-tools"><span class="camera-state" id="cameraState">Отключена</span><button id="trackButton" class="button outline" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 17 6-10 6 10H6Z"/><circle cx="6" cy="17" r="2" fill="currentColor"/><circle cx="12" cy="7" r="2" fill="currentColor"/><circle cx="18" cy="17" r="2" fill="currentColor"/></svg><span id="trackButtonText" data-i18n="checkJoints">Проверить суставы</span></button></div></div>
+          <div class="camera-wrap">
+            <video id="preview" autoplay playsinline muted></video>
+            <canvas id="landmarkOverlay" aria-hidden="true"></canvas>
+            <div class="camera-placeholder" id="placeholder">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="7" y="14" width="26" height="22" rx="4"/><path d="m33 21 8-5v18l-8-5M16 10h8"/></svg>
+              <strong data-i18n="cameraReady">Камера выключена</strong><span data-i18n="cameraPermission">Изображение появится после вашего разрешения</span><button id="cameraButton" class="button primary" data-i18n="enableCamera">Включить камеру</button>
+            </div>
+            <div class="record-badge" id="recordBadge"><span class="record-dot"></span><span data-i18n="recording">Запись</span><span id="timer">0:00</span><span>/ 0:08</span></div>
+          </div>
+          <div class="camera-controls"><button id="recordButton" class="button primary" data-i18n="startRecording" hidden disabled>Записать жест</button><button id="stopButton" class="button danger" data-i18n="stopRecording" hidden>Завершить запись</button><button id="cameraOffButton" class="button quiet" data-i18n="disableCamera" hidden>Выключить</button><span class="record-hint" data-i18n="recordHint">Одна фраза · 2–8 секунд</span></div>
+          <div class="tracking-area"><div class="tracking-control"><p data-i18n="trackingHint">Покажет точки рук и тела в реальном времени. Запись не нужна.</p></div><div id="trackingInfo" class="tracking-info" hidden><span id="trackStatus" role="status" aria-live="polite"></span><div class="tracking-legend"><span><i class="hand-dot"></i><span data-i18n="handsLegend">Кисти</span></span><span><i class="pose-dot"></i><span data-i18n="bodyLegend">Тело</span></span><span id="trackingStats"></span></div></div></div>
+        </section>
+        <aside class="result-column"><section class="result-panel"><h2 data-i18n="interpretation">Результат</h2><div class="result" id="result"><span class="result-caption" id="resultCaption"></span><strong id="resultText"></strong><p id="resultDetail"></p></div><button class="button outline full-width" id="useRecordingButton" data-i18n="useRecording" hidden>Добавить запись в примеры</button></section>
+          <section class="help-panel"><h3 data-i18n="beforeStart">Перед первой записью</h3><ol><li data-i18n="tipLight">Сядьте лицом к источнику света.</li><li data-i18n="tipFrame">Держите кисти и плечи в кадре.</li><li data-i18n="tipDataset">Добавьте примеры фраз, которые хотите распознавать.</li></ol><button class="text-button" data-go="dataset"><span data-i18n="goDataset">К примерам фраз</span><span aria-hidden="true">→</span></button></section>
+        </aside>
+      </div>
+      <p class="privacy-note" data-i18n="privacyNote">Кадры обрабатываются на вашем устройстве. Для обучения сохраняются только ключевые точки.</p>
+    </section>
+
+    <section data-panel="dataset" hidden>
+      <div class="page-heading"><h1 data-i18n="phrasesTitle">Примеры фраз</h1><p data-i18n="phrasesDescription">Выберите фразу и добавьте несколько записей с её жестом.</p></div>
+      <div class="dataset-layout"><section class="phrase-list-panel"><div class="panel-heading"><h2 data-i18n="phraseList">Ваши фразы</h2><span class="muted" id="totalCount"></span></div><div id="phraseGrid" class="phrase-list"></div></section>
+        <section class="sample-panel"><h2 data-i18n="addExample">Добавить пример</h2><label class="field-label" for="phraseSelect" data-i18n="phraseLabel">Фраза</label><select id="phraseSelect"></select><p class="sample-help" data-i18n="sampleHelp">Загрузите готовое видео или сохраните последнюю запись с камеры.</p><label class="file-button button primary"><span data-i18n="uploadVideo">Загрузить видео</span><input type="file" id="sampleFile" accept=".mp4,.webm,.mov,.avi" aria-label="Загрузить видео" data-i18n-aria-label="uploadVideo"></label><span class="file-note">MP4, WebM, MOV, AVI · ≤ 60 MB</span><div class="last-recording"><span id="clipStatus" class="muted" data-i18n="noRecording">Записи с камеры пока нет</span><button id="saveButton" class="button outline" data-i18n="saveRecording" disabled>Сохранить запись</button></div><button class="text-button" data-go="studio"><span aria-hidden="true">←</span><span data-i18n="backToCamera">К камере</span></button></section></div>
+      <p class="section-note" data-i18n="datasetAdvice">Снимайте при разном освещении и с разными людьми. Разнообразные примеры помогают распознаванию.</p>
+    </section>
+
+    <section data-panel="evaluation" hidden>
+      <div class="page-heading"><h1 data-i18n="evaluationTitle">Проверка точности</h1><p data-i18n="evaluationDescription">Используйте новые видео, которые ещё не добавляли в примеры.</p></div>
+      <section class="eval-card"><div class="eval-empty"><span class="step-number">1</span><div><h2 data-i18n="evalChooseTitle">Выберите видео для проверки</h2><p data-i18n="evalChooseHelp">Затем укажите фразу для каждого файла. До 30 видео за один раз.</p></div><label class="file-button button outline"><span data-i18n="chooseVideos">Выбрать видео</span><input type="file" id="evalFiles" accept=".mp4,.webm,.mov,.avi" multiple data-i18n-aria-label="chooseVideos" aria-label="Выбрать видео"></label></div><div id="evalLabels"></div><div class="eval-actions"><button id="evalButton" class="button primary" data-i18n="evaluate" disabled>Проверить</button><span data-i18n="evaluationNotSaved">Эти видео не попадут в обучающие примеры.</span></div><div id="evalResult" class="eval-result" aria-live="polite"></div></section>
+    </section>
+    <footer><span>SignVision</span><span data-i18n="footerText">Распознавание фиксированных фраз РЖЯ</span></footer>
+  </main>
+  <script src="/static/i18n.js"></script><script src="/static/tracking.js"></script><script src="/static/app.js"></script>
+</body>
+</html>
