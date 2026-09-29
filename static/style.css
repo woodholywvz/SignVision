@@ -14,3 +14,5 @@
 .camera-tools{display:flex;align-items:center;gap:12px}.camera-tools .button{min-height:32px;padding:7px 10px;font-size:11px}.camera-tools .button[aria-pressed=true]{background:#eff6ef;border-color:#7da894}.camera-placeholder .button{margin-top:8px}.camera-wrap{height:clamp(240px,38vh,380px);aspect-ratio:auto;max-height:none}.tracking-area{margin-top:14px;padding-top:12px}.camera-controls .record-hint{margin-left:0}
 @media(max-width:680px){.camera-wrap{height:auto;aspect-ratio:4/3}.camera-tools{gap:8px}.camera-tools .camera-state{display:none}}
 .tracking-info.error{color:#a3483c}
+#liveButton[aria-pressed=true]{background:#285e49;border-color:#285e49;color:#fff}
+.result.is-tentative strong{color:#815b28}.result.is-tentative p{color:#655744}

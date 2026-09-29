@@ -6,5 +6,5 @@
     {"id": "kak_dela", "text": "Как дела?", "en": "How are you?"},
     {"id": "do_svidaniya", "text": "До свидания", "en": "Goodbye"}
   ],
-  "recognition": {"neighbors": 3, "max_distance": 0.30, "min_margin": 0.05}
+  "recognition": {"neighbors": 3, "max_distance": 0.30, "tentative_distance": 0.42, "min_margin": 0.05}
 }

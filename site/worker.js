@@ -4,6 +4,7 @@ const FEATURES = 284;
 const HAND = 127;
 const MAX_SAMPLES = 100;
 const headers = {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'};
+const sampleCache = new WeakMap();
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers});
 const error = (message, status = 400) => json({detail: message}, status);
 
@@ -14,6 +15,8 @@ function validSequence(value) {
 }
 
 async function samples(bucket) {
+  const cached = sampleCache.get(bucket);
+  if (cached && Date.now() - cached.at < 10000) return cached.items;
   const found = [];
   let cursor;
   do {
@@ -26,6 +29,7 @@ async function samples(bucket) {
     }
     cursor = listed.truncated ? listed.cursor : null;
   } while (cursor && found.length < MAX_SAMPLES);
+  sampleCache.set(bucket, {at: Date.now(), items: found});
   return found;
 }
 function counts(items) {
@@ -80,11 +84,33 @@ function distance(a, b) {
   }
   return previous[m] / Math.max(n, m);
 }
-function predict(sequence, dataset, language) {
+function motion(sequence) {
+  const first = sequence.find(frame => frame[0] > .5 || frame[HAND] > .5);
+  const last = [...sequence].reverse().find(frame => frame[0] > .5 || frame[HAND] > .5);
+  if (!first || !last) return [0, 0];
+  const offset = first[0] > .5 && last[0] > .5 ? FEATURES - 6 : FEATURES - 3;
+  return [last[offset] - first[offset], last[offset + 1] - first[offset + 1]];
+}
+function advice(query, reference, quality = {}) {
+  const coverage = query.filter(frame => frame[0] > .5 || frame[HAND] > .5).length / query.length;
+  if (coverage < .65) return 'hands_visible';
+  if (Number.isFinite(quality.brightness) && quality.brightness < 65) return 'lighting';
+  if (Number.isFinite(quality.edge_ratio) && quality.edge_ratio > .3) return 'step_back';
+  const q = motion(query), r = motion(reference.sequence);
+  const qm = Math.hypot(...q), rm = Math.hypot(...r);
+  if (rm > .2 && qm > .2 && q[0] * r[0] + q[1] * r[1] < -.05) return 'direction';
+  if (Number.isFinite(reference.duration_s) && Number.isFinite(quality.duration_s) && reference.duration_s > .5) {
+    const ratio = quality.duration_s / reference.duration_s;
+    if (ratio < .7) return 'slower';
+    if (ratio > 1.5) return 'faster';
+  }
+  return 'hand_shape';
+}
+function predict(sequence, dataset, language, live = false, quality = {}) {
   const ru = language !== 'en';
-  if (!dataset.length) return {phrase_id: null, text: ru ? 'Неизвестный жест' : 'Unknown gesture', distance: null, margin: null, reason_code: 'empty_dataset', frames: sequence.length};
+  if (!dataset.length) return {state: 'empty_dataset', phrase_id: null, candidate_id: null, text: ru ? 'Неизвестный жест' : 'Unknown gesture', distance: null, margin: null, reason_code: 'empty_dataset', frames: sequence.length};
   const query = resample(sequence);
-  const ranked = dataset.map(item => ({label: item.phrase_id, value: distance(query, resample(item.sequence))})).sort((a, b) => a.value - b.value);
+  const ranked = dataset.map(item => ({label: item.phrase_id, value: distance(query, resample(item.sequence)), reference: item})).sort((a, b) => a.value - b.value);
   const nearest = ranked.slice(0, SITE_CONFIG.recognition.neighbors), votes = new Map();
   for (const item of nearest) {
     const value = votes.get(item.label) || {count: 0, total: 0};
@@ -96,6 +122,14 @@ function predict(sequence, dataset, language) {
   const margin = other === undefined ? null : other - best;
   const reason_code = best > SITE_CONFIG.recognition.max_distance ? 'too_far' : margin !== null && margin < SITE_CONFIG.recognition.min_margin ? 'ambiguous' : 'recognized';
   const phrase_id = reason_code === 'recognized' ? winner : null;
+  if (live) {
+    const plausible = best <= SITE_CONFIG.recognition.tentative_distance;
+    const state = reason_code === 'recognized' ? 'recognized' : plausible ? 'tentative' : 'unknown';
+    const candidate_id = state === 'tentative' ? winner : null;
+    const reference = ranked.find(item => item.label === winner)?.reference;
+    return {state, phrase_id, candidate_id, advice_code: candidate_id ? advice(sequence, reference, quality) : null,
+      distance: best, margin, reason_code, frames: sequence.length};
+  }
   const phrase = PHRASES.find(item => item.id === phrase_id);
   return {phrase_id, text: phrase ? (ru ? phrase.text : phrase.en) : ru ? 'Неизвестный жест' : 'Unknown gesture', distance: best, margin, reason_code, frames: sequence.length};
 }
@@ -147,13 +181,19 @@ export default {
         if (existing.length >= MAX_SAMPLES) return error('Достигнут лимит примеров', 413);
         const id = crypto.randomUUID();
         const sequence = resample(data.sequence).map(frame => frame.map(value => Math.round(value * 10000) / 10000));
-        await env.BUCKET.put(`samples/${data.phrase_id}/${id}.json`, JSON.stringify({phrase_id: data.phrase_id, sequence}), {httpMetadata: {contentType: 'application/json'}});
-        existing.push({phrase_id: data.phrase_id});
+        const duration_s = Number.isFinite(data.duration_s) && data.duration_s > 0 && data.duration_s <= 60 ? data.duration_s : null;
+        const saved = {phrase_id: data.phrase_id, sequence, duration_s};
+        await env.BUCKET.put(`samples/${data.phrase_id}/${id}.json`, JSON.stringify(saved), {httpMetadata: {contentType: 'application/json'}});
+        existing.push(saved); sampleCache.set(env.BUCKET, {at: Date.now(), items: existing});
         return json({sample_id: id, frames: data.sequence.length, counts: counts(existing)});
       }
       if (path === '/api/recognize') {
         if (!validSequence(data.sequence)) return error('Недостаточно кадров или рук в кадре', 422);
         return json(predict(data.sequence, await samples(env.BUCKET), lang));
+      }
+      if (path === '/api/live') {
+        if (!validSequence(data.sequence)) return json({state: 'waiting', phrase_id: null, candidate_id: null});
+        return json(predict(data.sequence, await samples(env.BUCKET), lang, true, {...data.quality, duration_s: data.duration_s}));
       }
       if (path === '/api/evaluate') {
         if (!Array.isArray(data.items) || data.items.length < 1 || data.items.length > 30) return error('Нужно от 1 до 30 видео');

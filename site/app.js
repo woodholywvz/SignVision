@@ -9,8 +9,11 @@ let stream, recorder, chunks = [], clip, startedAt, timerId, phrases = [], count
 let resultState = {phase: 'waiting'}, feedback = '', evalState = {phase: 'idle'};
 let busy = false, cameraStarting = false, cameraRequest = 0;
 let trackState = null;
+let live = false, liveFrames = [], liveQuality = {}, liveSentAt = 0, liveFrameAt = 0, livePending = false, liveGeneration = 0;
 const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), state => {
-  trackState = state; renderTracking();
+  trackState = state;
+  if (state.error && live) { stopLive(); resultState = {phase: 'error', error: t(state.key)}; renderResult(); }
+  renderTracking();
 });
 const t = (key, values = {}) => (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 function countText(number, kind) {
@@ -56,15 +59,25 @@ function renderCatalog() {
 function renderResult() {
   const {phase, prediction, error} = resultState;
   $('result').classList.toggle('is-unknown', phase === 'unknown' || phase === 'error');
-  const caption = phase === 'recognized' ? 'recognized' : phase === 'unknown' ? 'unknownState' :
+  $('result').classList.toggle('is-tentative', phase === 'tentative');
+  const caption = phase === 'empty' ? 'emptyDatasetState' : phase === 'tentative' ? 'tentativeState' : phase === 'listening' ? 'liveState' :
+    phase === 'recognized' ? 'recognized' : phase === 'unknown' ? 'unknownState' :
     phase === 'processing' ? 'processing' : phase === 'error' ? 'errorState' : 'waiting';
   $('resultCaption').textContent = t(caption);
-  if (phase === 'processing') {
+  if (phase === 'empty') {
+    $('resultText').textContent = t('liveEmpty'); $('resultDetail').textContent = t('liveEmptyHint');
+  } else if (phase === 'listening') {
+    $('resultText').textContent = t('liveListening'); $('resultDetail').textContent = t('liveListeningHint');
+  } else if (phase === 'tentative') {
+    $('resultText').textContent = t('maybePhrase', {phrase: phraseName(prediction.candidate_id)});
+    $('resultDetail').textContent = t('advice_' + prediction.advice_code);
+  } else if (phase === 'processing') {
     $('resultText').textContent = t('analyzing'); $('resultDetail').textContent = '';
   } else if (phase === 'error') {
     $('resultText').textContent = t('failedRecognize'); $('resultDetail').textContent = error;
   } else if (prediction) {
     $('resultText').textContent = phraseName(prediction.phrase_id || 'unknown');
+    if (live) { $('resultDetail').textContent = phase === 'unknown' ? t('liveUnknownHint') : t('liveRecognizedHint'); return; }
     const reasonKey = prediction.reason_code === 'recognized' ? 'recognizedReason' : prediction.reason_code;
     const details = [t(reasonKey), t('frames', {n: prediction.frames})];
     if (prediction.distance !== null) details.push(t('distance', {n: prediction.distance.toFixed(3)}));
@@ -104,7 +117,7 @@ function applyLocale() {
   document.querySelectorAll('#evalLabels select').forEach(select => options(select, true, select.value));
   if (phrases.length) renderCatalog(); else $('datasetStatus').textContent = t('loadingDataset');
   $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
-  $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking();
+  $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking(); renderControls();
 }
 document.querySelectorAll('.lang-switch button').forEach(button => button.addEventListener('click', () => {
   locale = button.dataset.lang;
@@ -124,7 +137,10 @@ function renderControls() {
   $('cameraButton').hidden = !!stream;
   $('cameraButton').disabled = busy || cameraStarting;
   $('recordButton').hidden = !stream || recording;
-  $('recordButton').disabled = !stream || busy;
+  $('recordButton').disabled = !stream || busy || live;
+  $('liveButton').disabled = busy || recording || cameraStarting;
+  $('liveButton').setAttribute('aria-pressed', String(live));
+  $('liveButton').textContent = t(live ? 'stopLive' : 'startLive');
   $('stopButton').hidden = !recording;
   $('cameraOffButton').hidden = !stream;
   $('cameraOffButton').disabled = recording;
@@ -132,7 +148,7 @@ function renderControls() {
   $('useRecordingButton').hidden = !clip;
   $('evalButton').disabled = busy || !$('evalFiles').files.length;
   $('sampleFile').disabled = busy; $('evalFiles').disabled = busy;
-  $('trackButton').disabled = cameraStarting;
+  $('trackButton').disabled = cameraStarting || live;
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
   $('cameraState').classList.toggle('connected', !!stream);
   $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
@@ -167,6 +183,7 @@ async function startCamera() {
 }
 function stopCamera() {
   cameraRequest += 1;
+  stopLive();
   if (recorder?.state === 'recording') recorder.stop();
   tracker.stop(); trackState = null; renderTracking();
   if (stream) stream.getTracks().forEach(track => track.stop());
@@ -192,8 +209,40 @@ $('trackButton').addEventListener('click', async () => {
   if (tracker.active) { tracker.stop(); trackState = null; renderTracking(); return; }
   if (await startCamera()) tracker.start();
 });
+function stopLive() {
+  live = false; liveGeneration++; liveFrames = []; livePending = false; tracker.onFrame = null;
+  renderControls();
+}
+tracker.onFrame = null;
+function liveFrame(frame, now, quality) {
+  if (!live || now - liveFrameAt < 115) return;
+  liveFrameAt = now;
+  liveFrames.push({frame, at: now});
+  while (liveFrames.length > 25 || (liveFrames.length && now - liveFrames[0].at > 3100)) liveFrames.shift();
+  if (quality) liveQuality = quality;
+  if (liveFrames.length < 12 || livePending || now - liveSentAt < 1250) return;
+  liveSentAt = now; livePending = true;
+  const generation = liveGeneration;
+  const duration_s = (now - liveFrames[0].at) / 1000;
+  api('/api/live', {sequence: liveFrames.map(item => item.frame), duration_s, quality: liveQuality})
+    .then(prediction => {
+      if (!live || generation !== liveGeneration) return;
+      resultState = {phase: prediction.state === 'waiting' ? 'listening' : prediction.state === 'empty_dataset' ? 'empty' : prediction.state, prediction};
+      renderResult();
+    })
+    .catch(error => { if (live && generation === liveGeneration) { resultState = {phase: 'error', error: error.message}; renderResult(); } })
+    .finally(() => { if (generation === liveGeneration) livePending = false; });
+}
+$('liveButton').addEventListener('click', async () => {
+  if (live) { stopLive(); tracker.stop(); trackState = null; resultState = {phase: 'waiting'}; renderResult(); renderTracking(); return; }
+  if (!Object.values(counts).some(Boolean)) { resultState = {phase: 'empty'}; renderResult(); return; }
+  if (!await startCamera()) return;
+  live = true; liveGeneration++; liveFrames = []; liveQuality = {}; liveSentAt = 0; liveFrameAt = 0;
+  tracker.onFrame = liveFrame; resultState = {phase: 'listening'}; renderResult(); renderControls();
+  if (!tracker.active) tracker.start();
+});
 window.addEventListener('pagehide', stopCamera);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { tracker.stop(); trackState = null; renderTracking(); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { stopLive(); tracker.stop(); trackState = null; renderTracking(); } });
 $('recordButton').addEventListener('click', () => {
   if (!stream || busy) return;
   if (tracker.active) { tracker.stop(); trackState = null; renderTracking(); }
@@ -229,14 +278,14 @@ $('stopButton').addEventListener('click', () => { if (recorder?.state === 'recor
 $('saveButton').addEventListener('click', async () => {
   if (!clip || busy) return;
   busy = true; renderControls();
-  try { setFeedback(t('saving')); const sequence = await window.GestureEngine.extract(clip); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence}); counts = data.counts; renderCatalog(); setFeedback(t('saved', {n: data.frames})); }
+  try { setFeedback(t('saving')); const sequence = await window.GestureEngine.extract(clip); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); setFeedback(t('saved', {n: data.frames})); }
   catch (error) { setFeedback(error.message, true); }
   finally { busy = false; renderControls(); }
 });
 $('sampleFile').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file || busy) return;
   busy = true; renderControls();
-  try { setFeedback(t('uploading')); const sequence = await window.GestureEngine.extract(file); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence}); counts = data.counts; renderCatalog(); setFeedback(t('uploaded', {n: data.frames})); }
+  try { setFeedback(t('uploading')); const sequence = await window.GestureEngine.extract(file); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); setFeedback(t('uploaded', {n: data.frames})); }
   catch (error) { setFeedback(error.message, true); }
   finally { event.target.value = ''; busy = false; renderControls(); }
 });

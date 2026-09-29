@@ -90,6 +90,8 @@ window.LiveTracking = class {
   constructor(video, overlay, onChange) {
     this.video = video; this.overlay = overlay; this.onChange = onChange; this.active = false; this.run = 0;
     this.capture = document.createElement('canvas'); this.captureContext = this.capture.getContext('2d', {alpha: false});
+    this.qualityCanvas = document.createElement('canvas'); this.qualityCanvas.width = 16; this.qualityCanvas.height = 12;
+    this.qualityContext = this.qualityCanvas.getContext('2d', {willReadFrequently: true});
   }
   async start() {
     this.stop(); this.active = true; const run = this.run;
@@ -122,6 +124,19 @@ window.LiveTracking = class {
           const now = performance.now(), fps = this.lastResult ? Math.min(30, 1000 / (now - this.lastResult)).toFixed(1) : '—';
           this.lastResult = now;
           const handCount = Object.keys(detection.hands).length;
+          if (this.onFrame) {
+            let quality = null;
+            if (this.frameIndex % 8 === 0) {
+              this.qualityContext.drawImage(this.capture, 0, 0, 16, 12);
+              const pixels = this.qualityContext.getImageData(0, 0, 16, 12).data;
+              let sum = 0;
+              for (let p = 0; p < pixels.length; p += 4) sum += (pixels[p] + pixels[p + 1] + pixels[p + 2]) / 3;
+              const points = Object.values(detection.hands).flat();
+              const edge = points.length ? points.filter(p => p.x < .08 || p.x > .92 || p.y < .08 || p.y > .92).length / points.length : 0;
+              quality = {brightness: sum / (pixels.length / 4), edge_ratio: edge};
+            }
+            this.onFrame(features(detection), now, quality);
+          }
           if (handCount !== this.lastHands || now - this.lastStatusAt >= 500) {
             this.onChange({key: handCount ? 'trackingFound' : 'trackingNoHands', hands: handCount, body: !!detection.pose, fps});
             this.lastHands = handCount; this.lastStatusAt = now;

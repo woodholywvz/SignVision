@@ -16,7 +16,7 @@
   <main class="app-shell">
     <nav class="tabs" aria-label="Разделы" data-i18n-aria-label="sections">
       <button type="button" class="tab active" data-tab="studio" aria-current="page" data-i18n="navStudio">Распознавание</button>
-      <button type="button" class="tab" data-tab="dataset" data-i18n="navDataset">Примеры фраз</button>
+      <button type="button" class="tab" data-tab="dataset" data-i18n="navDataset">Эталонные жесты</button>
       <button type="button" class="tab" data-tab="evaluation" data-i18n="navEvaluation">Проверка точности</button>
       <span class="dataset-status" id="datasetStatus" aria-live="polite"></span>
     </nav>
@@ -36,7 +36,7 @@
             </div>
             <div class="record-badge" id="recordBadge"><span class="record-dot"></span><span data-i18n="recording">Запись</span><span id="timer">0:00</span><span>/ 0:08</span></div>
           </div>
-          <div class="camera-controls"><button id="recordButton" class="button primary" data-i18n="startRecording" hidden disabled>Записать жест</button><button id="stopButton" class="button danger" data-i18n="stopRecording" hidden>Завершить запись</button><button id="cameraOffButton" class="button quiet" data-i18n="disableCamera" hidden>Выключить</button><span class="record-hint" data-i18n="recordHint">Одна фраза · 2–8 секунд</span></div>
+          <div class="camera-controls"><button id="liveButton" class="button outline" aria-pressed="false" data-i18n="startLive">Начать живой перевод</button><button id="recordButton" class="button primary" data-i18n="startRecording" hidden disabled>Записать жест</button><button id="stopButton" class="button danger" data-i18n="stopRecording" hidden>Завершить запись</button><button id="cameraOffButton" class="button quiet" data-i18n="disableCamera" hidden>Выключить</button><span class="record-hint" data-i18n="recordHint">Одна фраза · 2–8 секунд</span></div>
           <div class="tracking-area"><div class="tracking-control"><p data-i18n="trackingHint">Покажет точки рук и тела в реальном времени. Запись не нужна.</p></div><div id="trackingInfo" class="tracking-info" hidden><span id="trackStatus" role="status" aria-live="polite"></span><div class="tracking-legend"><span><i class="hand-dot"></i><span data-i18n="handsLegend">Кисти</span></span><span><i class="pose-dot"></i><span data-i18n="bodyLegend">Тело</span></span><span id="trackingStats"></span></div></div></div>
         </section>
         <aside class="result-column"><section class="result-panel"><h2 data-i18n="interpretation">Результат</h2><div class="result" id="result"><span class="result-caption" id="resultCaption"></span><strong id="resultText"></strong><p id="resultDetail"></p></div><button class="button outline full-width" id="useRecordingButton" data-i18n="useRecording" hidden>Добавить запись в примеры</button></section>
@@ -47,7 +47,7 @@
     </section>
 
     <section data-panel="dataset" hidden>
-      <div class="page-heading"><h1 data-i18n="phrasesTitle">Примеры фраз</h1><p data-i18n="phrasesDescription">Выберите фразу и добавьте несколько записей с её жестом.</p></div>
+      <div class="page-heading"><h1 data-i18n="phrasesTitle">Эталонные жесты</h1><p data-i18n="phrasesDescription">Выберите фразу и загрузите несколько видео её жеста.</p></div>
       <div class="dataset-layout"><section class="phrase-list-panel"><div class="panel-heading"><h2 data-i18n="phraseList">Ваши фразы</h2><span class="muted" id="totalCount"></span></div><div id="phraseGrid" class="phrase-list"></div></section>
         <section class="sample-panel"><h2 data-i18n="addExample">Добавить пример</h2><label class="field-label" for="phraseSelect" data-i18n="phraseLabel">Фраза</label><select id="phraseSelect"></select><p class="sample-help" data-i18n="sampleHelp">Загрузите готовое видео или сохраните последнюю запись с камеры.</p><label class="file-button button primary"><span data-i18n="uploadVideo">Загрузить видео</span><input type="file" id="sampleFile" accept=".mp4,.webm,.mov,.avi" aria-label="Загрузить видео" data-i18n-aria-label="uploadVideo"></label><span class="file-note">MP4, WebM, MOV, AVI · ≤ 60 MB</span><div class="last-recording"><span id="clipStatus" class="muted" data-i18n="noRecording">Записи с камеры пока нет</span><button id="saveButton" class="button outline" data-i18n="saveRecording" disabled>Сохранить запись</button></div><button class="text-button" data-go="studio"><span aria-hidden="true">←</span><span data-i18n="backToCamera">К камере</span></button></section></div>
       <p class="section-note" data-i18n="datasetAdvice">Снимайте при разном освещении и с разными людьми. Разнообразные примеры помогают распознаванию.</p>
