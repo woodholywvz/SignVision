@@ -141,6 +141,7 @@ function renderTracking() {
   $('trackButton').setAttribute('aria-pressed', String(tracker.active));
   $('trackButtonText').textContent = t(tracker.active ? 'hideJoints' : 'checkJoints');
   $('trackingInfo').hidden = !trackState;
+  $('trackingInfo').classList.toggle('error', !!trackState?.error);
   $('trackStatus').textContent = trackState ? t(trackState.key) : '';
   $('trackingStats').textContent = trackState?.hands !== undefined ? t('trackingStats', {hands: trackState.hands, fps: trackState.fps}) : '';
 }
@@ -199,7 +200,8 @@ $('recordButton').addEventListener('click', () => {
   const mime = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type));
   if (!mime) { setFeedback(t('unsupportedRecording')); return; }
   chunks = []; clip = null; $('saveButton').disabled = true; startedAt = Date.now();
-  recorder = new MediaRecorder(stream, {mimeType: mime});
+  try { recorder = new MediaRecorder(stream, {mimeType: mime}); }
+  catch (_) { setFeedback(t('unsupportedRecording'), true); renderControls(); return; }
   recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
   recorder.onstop = async () => {
     clip = new Blob(chunks, {type: mime}); $('saveButton').disabled = false;
@@ -213,7 +215,9 @@ $('recordButton').addEventListener('click', () => {
     } catch (error) { resultState = {phase: 'error', error: error.message}; renderResult(); }
     finally { busy = false; renderControls(); }
   };
-  recorder.start(); $('timer').textContent = '0:00'; $('recordBadge').classList.add('visible'); renderControls();
+  try { recorder.start(); }
+  catch (_) { setFeedback(t('unsupportedRecording'), true); renderControls(); return; }
+  $('timer').textContent = '0:00'; $('recordBadge').classList.add('visible'); renderControls();
   timerId = setInterval(() => {
     const seconds = Math.floor((Date.now() - startedAt) / 1000);
     $('timer').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
