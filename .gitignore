@@ -6,3 +6,5 @@ models/
 logs/
 *.pyc
 dist/
+.sites-runtime/
+.sites-checkout/
