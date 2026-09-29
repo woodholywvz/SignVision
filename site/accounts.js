@@ -73,7 +73,24 @@ async function registerAccount(request, env, data) {
 
 async function usersForAdmin(request, db) {
   await requireAdmin(request, db);
-  return (await db.prepare('SELECT id, email, display_name, role, created_at FROM accounts ORDER BY created_at, id').all()).results;
+  const rows = (await db.prepare(`SELECT a.id, a.email, a.display_name, a.role, a.created_at,
+    p.phrase_id, p.status FROM accounts a
+    LEFT JOIN lesson_progress p ON p.user_id = a.id
+    ORDER BY a.created_at, a.id, p.phrase_id`).all()).results;
+  const users = new Map();
+  for (const row of rows) {
+    if (!users.has(row.id)) users.set(row.id, {
+      id: row.id, email: row.email, display_name: row.display_name, role: row.role,
+      created_at: row.created_at, progress: {completed: 0, started: 0, total: PHRASES.length, lessons: {}},
+    });
+    if (row.phrase_id && IDS.has(row.phrase_id)) {
+      const progress = users.get(row.id).progress;
+      progress.lessons[row.phrase_id] = row.status;
+      if (row.status === 'completed') progress.completed++;
+      if (row.status === 'in_progress' || row.status === 'completed') progress.started++;
+    }
+  }
+  return [...users.values()];
 }
 
 async function changeUserRole(request, db, targetId, role) {

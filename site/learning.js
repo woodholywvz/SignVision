@@ -5,7 +5,8 @@
   if (theme !== 'dark' && theme !== 'light') theme = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   document.documentElement.dataset.theme = theme;
 
-  const state = {me: null, lessons: [], completed: 0, total: 0, selected: null, users: [], samples: [], practicePhrase: null};
+  const state = {me: null, lessons: [], completed: 0, total: 0, selected: null, users: [], usersLoading: false,
+    usersError: '', samples: [], samplesError: '', practicePhrase: null};
   const element = (tag, className, value) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -126,18 +127,51 @@
     if (state.lessons.some(item => item.phrase_id === selected)) $('adminPhrase').value = selected;
     renderAdminEditor();
     const users = $('adminUsers'); users.replaceChildren();
+    $('adminUserSummary').textContent = t('registeredUsers', {n: state.users.length});
+    if (state.usersLoading) users.append(element('p', 'muted', t('loadingUsers')));
+    if (state.usersError) {
+      users.append(element('p', 'admin-error', state.usersError));
+      const retry = element('button', 'button outline', t('retryUsers'));
+      retry.type = 'button'; retry.onclick = () => loadAdmin(); users.append(retry);
+    }
+    if (!state.usersLoading && !state.usersError && !state.users.length) users.append(element('p', 'muted', t('noUsers')));
     state.users.forEach(user => {
-      const row = element('div', 'admin-row');
-      const text = element('span', 'admin-row-text'); text.append(element('strong', '', user.display_name), element('small', '', user.email));
+      const row = element('article', 'admin-user');
+      const heading = element('div', 'admin-user-heading');
+      const text = element('div', 'admin-row-text'); text.append(element('strong', '', user.display_name), element('small', '', user.email));
+      heading.append(text, element('span', 'role-label', t(user.role === 'admin' ? 'roleAdmin' : 'roleStudent')));
+      const progress = user.progress || {completed: 0, started: 0, total: state.lessons.length, lessons: {}};
+      const label = element('p', 'admin-progress-label', t('userProgress', {completed: progress.completed, total: progress.total}));
+      const bar = element('div', 'progress-track');
+      const fill = element('span'); fill.style.width = `${progress.total ? Math.round(progress.completed / progress.total * 100) : 0}%`;
+      bar.append(fill);
+      const details = element('details', 'admin-user-details');
+      details.append(element('summary', '', t('lessonProgressDetails')));
+      const list = element('ul');
+      state.lessons.forEach(lesson => {
+        const status = progress.lessons?.[lesson.phrase_id] || 'not_started';
+        const item = element('li'); item.append(element('span', '', lessonTitle(lesson)),
+          element('small', '', t(status === 'completed' ? 'lessonCompleted' : status === 'in_progress' ? 'lessonInProgress' : 'lessonNotStarted')));
+        list.append(item);
+      });
+      details.append(list);
       const action = element('button', 'button outline', t(user.role === 'admin' ? 'removeAdmin' : 'makeAdmin'));
+      action.type = 'button';
+      if (user.role === 'admin' && state.users.filter(item => item.role === 'admin').length === 1) {
+        action.disabled = true; action.title = t('lastAdminHint');
+      }
       action.onclick = async () => {
-        try { await api(`/api/admin/users/${encodeURIComponent(user.id)}/role`, {role: user.role === 'admin' ? 'student' : 'admin'}); state.me = await getJson('/api/me'); if (isAdmin()) await loadAdmin(); render(); setFeedback(t('roleUpdated')); }
+        action.disabled = true;
+        try { await api(`/api/admin/users/${encodeURIComponent(user.id)}/role`, {role: user.role === 'admin' ? 'student' : 'admin'}); state.me = await getJson('/api/me'); if (isAdmin()) await loadAdmin(); else setPanel('account'); render(); setFeedback(t('roleUpdated')); }
         catch (error) { setFeedback(error.message, true); }
+        finally { action.disabled = false; }
       };
-      row.append(text, element('span', 'role-label', t(user.role === 'admin' ? 'roleAdmin' : 'roleStudent')), action); users.append(row);
+      const footer = element('div', 'admin-user-footer'); footer.append(action);
+      row.append(heading, label, bar, details, footer); users.append(row);
     });
     const sampleList = $('adminSamples'); sampleList.replaceChildren();
-    if (!state.samples.length) sampleList.append(element('p', 'muted', t('noReferences')));
+    if (state.samplesError) sampleList.append(element('p', 'admin-error', state.samplesError));
+    else if (!state.samples.length) sampleList.append(element('p', 'muted', t('noReferences')));
     state.samples.forEach(sample => {
       const row = element('div', 'admin-row');
       const name = state.lessons.find(item => item.phrase_id === sample.phrase_id);
@@ -160,8 +194,14 @@
   }
   async function loadAdmin() {
     if (!isAdmin()) return;
-    const [users, samples] = await Promise.all([getJson('/api/admin/users'), getJson('/api/admin/samples')]);
-    state.users = users.users; state.samples = samples.samples; renderAdmin();
+    state.usersLoading = true; state.usersError = ''; renderAdmin();
+    const [users, samples] = await Promise.allSettled([getJson('/api/admin/users'), getJson('/api/admin/samples')]);
+    state.usersLoading = false;
+    if (users.status === 'fulfilled') { state.users = users.value.users; state.usersError = ''; }
+    else { state.users = []; state.usersError = users.reason.message; }
+    if (samples.status === 'fulfilled') { state.samples = samples.value.samples; state.samplesError = ''; }
+    else { state.samples = []; state.samplesError = samples.reason.message; }
+    renderAdmin();
   }
   async function selectLesson(id, markStarted) {
     state.selected = id; renderLessons();

@@ -45,6 +45,9 @@ test('only admins change references and lesson material; student progress is pri
   assert.equal((await practice.json()).completed, true);
   const progress = await call(env, '/api/lessons', undefined, student);
   assert.equal((await progress.json()).completed, 1);
+  const users = await call(env, '/api/admin/users', undefined, admin);
+  const studentRow = (await users.json()).users.find(user => user.id === student.id);
+  assert.deepEqual(studentRow.progress, {completed: 1, started: 1, total: 5, lessons: {privet: 'completed'}});
   const other = await call(env, '/api/lessons', undefined, admin);
   assert.equal((await other.json()).completed, 0);
   assert.equal((await call(env, `/api/admin/samples/${sampleId}`, undefined, student, 'DELETE')).status, 403);
