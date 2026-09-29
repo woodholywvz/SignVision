@@ -264,5 +264,5 @@ $('evalButton').addEventListener('click', async () => {
 applyLocale(); renderControls(); refresh().catch(error => setFeedback(error.message, true));
 if (new URLSearchParams(location.search).has('mediaTest')) {
   setFeedback('Loading MediaPipe…');
-  window.GestureEngine.ready().then(() => setFeedback('MediaPipe ready')).catch(error => setFeedback(error.message, true));
+  window.GestureEngine.selfTest().then(hands => setFeedback(`MediaPipe ready · hands: ${hands}`, hands < 1)).catch(error => setFeedback(error.message, true));
 }

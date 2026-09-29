@@ -109,6 +109,17 @@ window.LiveTracking = class {
 };
 window.GestureEngine = {
   async ready() { window.SignVisionModels = await models(); return true; },
+  async selfTest() {
+    await this.ready();
+    const response = await fetch('/mediapipe/test-hands.jpg');
+    if (!response.ok) throw new Error('Test image unavailable');
+    const bitmap = await createImageBitmap(await response.blob());
+    const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0);
+    const result = detect(canvas);
+    bitmap.close();
+    return Object.keys(result.hands).length;
+  },
   async extract(blob) {
     window.SignVisionModels = await models();
     const url = URL.createObjectURL(blob), video = document.createElement('video');

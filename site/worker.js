@@ -115,13 +115,14 @@ async function mediapipeAsset(path) {
     '/mediapipe/vision_bundle.mjs': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs',
     '/mediapipe/hand_landmarker.task': 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
     '/mediapipe/pose_landmarker_lite.task': 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    '/mediapipe/test-hands.jpg': 'https://storage.googleapis.com/mediapipe-tasks/hand_landmarker/woman_hands.jpg',
   };
   const source = sources[path] || (wasm.test(path) ? `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm/${path.split('/').pop()}` : null);
   if (!source) return new Response('Not found', {status: 404});
   try {
     const upstream = await fetch(source);
     if (!upstream.ok) return new Response('Model asset unavailable', {status: 502});
-    const type = path.endsWith('.wasm') ? 'application/wasm' : path.endsWith('.task') ? 'application/octet-stream' : 'text/javascript; charset=utf-8';
+    const type = path.endsWith('.wasm') ? 'application/wasm' : path.endsWith('.task') ? 'application/octet-stream' : path.endsWith('.jpg') ? 'image/jpeg' : 'text/javascript; charset=utf-8';
     return new Response(upstream.body, {headers: {'content-type': type, 'cache-control': 'public, max-age=86400'}});
   } catch (caught) {
     console.error('MediaPipe asset failed', path, caught);
