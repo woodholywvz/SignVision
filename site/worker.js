@@ -109,10 +109,30 @@ function serve(path) {
   if (!asset) return new Response('Not found', {status: 404});
   return new Response(asset.body, {headers: {'content-type': asset.type, 'cache-control': 'public, max-age=3600'}});
 }
+async function mediapipeAsset(path) {
+  const wasm = /^\/mediapipe\/wasm\/vision_wasm_(?:internal|nosimd_internal)\.(?:js|wasm)$/;
+  const sources = {
+    '/mediapipe/vision_bundle.mjs': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs',
+    '/mediapipe/hand_landmarker.task': 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+    '/mediapipe/pose_landmarker_lite.task': 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+  };
+  const source = sources[path] || (wasm.test(path) ? `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm/${path.split('/').pop()}` : null);
+  if (!source) return new Response('Not found', {status: 404});
+  try {
+    const upstream = await fetch(source);
+    if (!upstream.ok) return new Response('Model asset unavailable', {status: 502});
+    const type = path.endsWith('.wasm') ? 'application/wasm' : path.endsWith('.task') ? 'application/octet-stream' : 'text/javascript; charset=utf-8';
+    return new Response(upstream.body, {headers: {'content-type': type, 'cache-control': 'public, max-age=86400'}});
+  } catch (caught) {
+    console.error('MediaPipe asset failed', path, caught);
+    return new Response('Model asset unavailable', {status: 502});
+  }
+}
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (path === '/' || path.startsWith('/static/')) return serve(path === '/' ? '/index.html' : path);
+    if (path.startsWith('/mediapipe/')) return mediapipeAsset(path);
     if (!path.startsWith('/api/')) return new Response('Not found', {status: 404});
     if (!env.BUCKET) return error('Хранилище сайта пока недоступно', 503);
     try {

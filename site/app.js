@@ -262,3 +262,7 @@ $('evalButton').addEventListener('click', async () => {
   busy = false; renderControls(); renderEvaluation();
 });
 applyLocale(); renderControls(); refresh().catch(error => setFeedback(error.message, true));
+if (new URLSearchParams(location.search).has('mediaTest')) {
+  setFeedback('Loading MediaPipe…');
+  window.GestureEngine.ready().then(() => setFeedback('MediaPipe ready')).catch(error => setFeedback(error.message, true));
+}

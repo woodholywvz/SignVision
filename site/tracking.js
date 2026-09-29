@@ -4,14 +4,22 @@ const POSE_EDGES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,
 const POSE_IDS = [11,12,13,14,15,16,23,24];
 let modelPromise, lastTimestamp = 0;
 function nextTimestamp() { lastTimestamp = Math.max(performance.now(), lastTimestamp + 1); return lastTimestamp; }
-async function models() {
-  if (!modelPromise) modelPromise = (async () => {
-    const mp = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/+esm');
-    const vision = await mp.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm');
-    const hands = await mp.HandLandmarker.createFromOptions(vision, {baseOptions: {modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'}, runningMode: 'VIDEO', numHands: 2});
-    const pose = await mp.PoseLandmarker.createFromOptions(vision, {baseOptions: {modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'}, runningMode: 'VIDEO', numPoses: 1});
+async function models(progress = () => {}) {
+  if (!modelPromise) {
+    const work = (async () => {
+    progress('trackingLibrary');
+    const mp = await import('/mediapipe/vision_bundle.mjs');
+    const vision = await mp.FilesetResolver.forVisionTasks('/mediapipe/wasm');
+    progress('trackingHandModel');
+    const hands = await mp.HandLandmarker.createFromOptions(vision, {baseOptions: {modelAssetPath: '/mediapipe/hand_landmarker.task'}, runningMode: 'VIDEO', numHands: 2});
+    progress('trackingPoseModel');
+    const pose = await mp.PoseLandmarker.createFromOptions(vision, {baseOptions: {modelAssetPath: '/mediapipe/pose_landmarker_lite.task'}, runningMode: 'VIDEO', numPoses: 1});
     return {hands, pose};
-  })().catch(error => { modelPromise = null; throw error; });
+    })();
+    let timer;
+    modelPromise = Promise.race([work, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('MediaPipe loading timed out')), 25000); })])
+      .catch(error => { modelPromise = null; throw error; }).finally(() => clearTimeout(timer));
+  }
   return modelPromise;
 }
 function detect(video) {
@@ -77,8 +85,11 @@ window.LiveTracking = class {
   async start() {
     this.stop(); this.active = true; const run = this.run;
     this.onChange({key: 'trackingLoading'});
-    try { window.SignVisionModels = await models(); }
+    this.watchdog = setTimeout(() => { if (run === this.run) this.fail('tracking_timeout'); }, 30000);
+    try { window.SignVisionModels = await models(key => { if (run === this.run) this.onChange({key}); }); }
     catch (error) { console.error('MediaPipe initialization failed', error); if (run === this.run) this.fail('tracking_failed'); return; }
+    clearTimeout(this.watchdog);
+    if (!this.active || run !== this.run) return;
     const tick = () => {
       if (!this.active || run !== this.run) return;
       if (this.video.readyState >= 2 && this.video.videoWidth) {
@@ -94,9 +105,10 @@ window.LiveTracking = class {
     tick();
   }
   fail(key) { this.stop(); this.onChange({key, error: true}); }
-  stop() { this.active = false; this.run++; clearTimeout(this.timer); this.lastResult = null; this.overlay.getContext('2d').clearRect(0, 0, this.overlay.width, this.overlay.height); }
+  stop() { this.active = false; this.run++; clearTimeout(this.timer); clearTimeout(this.watchdog); this.lastResult = null; this.overlay.getContext('2d').clearRect(0, 0, this.overlay.width, this.overlay.height); }
 };
 window.GestureEngine = {
+  async ready() { window.SignVisionModels = await models(); return true; },
   async extract(blob) {
     window.SignVisionModels = await models();
     const url = URL.createObjectURL(blob), video = document.createElement('video');
