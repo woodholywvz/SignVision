@@ -137,7 +137,7 @@ export default {
     if (!path.startsWith('/api/')) return new Response('Not found', {status: 404});
     if (!env.BUCKET) return error('Хранилище сайта пока недоступно', 503);
     try {
-      if (path === '/api/config' && request.method === 'GET') return json({phrases: PHRASES, counts: counts(await samples(env.BUCKET)), min_frames: 8, sample_fps: 12});
+      if (path === '/api/config' && request.method === 'GET') return json({phrases: PHRASES, counts: counts(await samples(env.BUCKET)), min_frames: 8, sample_fps: 8});
       if (request.method !== 'POST') return error('Method not allowed', 405);
       const data = await body(request), lang = language(request);
       if (path === '/api/samples') {

@@ -151,7 +151,7 @@ async function startCamera() {
   const request = ++cameraRequest; cameraStarting = true; renderControls();
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error(), {name: 'UnsupportedCamera'});
-    const acquired = await navigator.mediaDevices.getUserMedia({video: {width: {ideal: 960}, height: {ideal: 720}}, audio: false});
+    const acquired = await navigator.mediaDevices.getUserMedia({video: {width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 24}}, audio: false});
     if (request !== cameraRequest) { acquired.getTracks().forEach(track => track.stop()); return false; }
     stream = acquired;
     $('preview').srcObject = stream; $('placeholder').hidden = true;

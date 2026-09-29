@@ -2,9 +2,14 @@
 const HAND_EDGES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
 const POSE_EDGES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[27,29],[29,31],[24,26],[26,28],[28,30],[30,32]];
 const POSE_IDS = [11,12,13,14,15,16,23,24];
+const LIVE_WIDTH = 512;
+const LIVE_POSE_INTERVAL = 3;
+const LIVE_MIN_INTERVAL_MS = 60;
+const CLIP_FPS = 8;
 let modelPromise, lastTimestamp = 0;
 function nextTimestamp() { lastTimestamp = Math.max(performance.now(), lastTimestamp + 1); return lastTimestamp; }
 async function models(progress = () => {}) {
+  if (window.SignVisionModels) return window.SignVisionModels;
   if (!modelPromise) {
     const work = (async () => {
     progress('trackingLibrary');
@@ -22,17 +27,17 @@ async function models(progress = () => {}) {
   }
   return modelPromise;
 }
-function detect(video) {
+function detect(image, includePose = true) {
   const {hands, pose} = window.SignVisionModels;
   const timestamp = nextTimestamp();
-  const handResult = hands.detectForVideo(video, timestamp);
-  const poseResult = pose.detectForVideo(video, timestamp);
+  const handResult = hands.detectForVideo(image, timestamp);
+  const poseResult = includePose ? pose.detectForVideo(image, timestamp) : null;
   const bySide = {};
   (handResult.landmarks || []).forEach((points, index) => {
     const side = handResult.handednesses?.[index]?.[0]?.categoryName;
     if (side === 'Left' || side === 'Right') bySide[side] = points;
   });
-  return {hands: bySide, pose: poseResult.landmarks?.[0] || null};
+  return {hands: bySide, pose: poseResult?.landmarks?.[0] || null};
 }
 function point(p) { return [p.x, p.y, p.z]; }
 function norm(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
@@ -61,7 +66,8 @@ function features(detection) {
   return output;
 }
 function draw(canvas, video, detection) {
-  canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+  const width = video.videoWidth || 640, height = video.videoHeight || 480;
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
   const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
   const skeleton = (points, edges, color, pose = false) => {
     if (!points) return;
@@ -81,7 +87,10 @@ function draw(canvas, video, detection) {
   for (const hand of Object.values(detection.hands)) skeleton(hand, HAND_EDGES, '#28b978');
 }
 window.LiveTracking = class {
-  constructor(video, overlay, onChange) { this.video = video; this.overlay = overlay; this.onChange = onChange; this.active = false; this.run = 0; }
+  constructor(video, overlay, onChange) {
+    this.video = video; this.overlay = overlay; this.onChange = onChange; this.active = false; this.run = 0;
+    this.capture = document.createElement('canvas'); this.captureContext = this.capture.getContext('2d', {alpha: false});
+  }
   async start() {
     this.stop(); this.active = true; const run = this.run;
     this.onChange({key: 'trackingLoading'});
@@ -90,22 +99,46 @@ window.LiveTracking = class {
     catch (error) { console.error('MediaPipe initialization failed', error); if (run === this.run) this.fail('tracking_failed'); return; }
     clearTimeout(this.watchdog);
     if (!this.active || run !== this.run) return;
+    this.frameIndex = 0; this.lastPose = null; this.lastHands = -1; this.lastStatusAt = 0;
+    const schedule = () => {
+      if (!this.active || run !== this.run) return;
+      if (typeof this.video.requestVideoFrameCallback === 'function') this.frameHandle = this.video.requestVideoFrameCallback(tick);
+      else this.timer = setTimeout(tick, LIVE_MIN_INTERVAL_MS);
+    };
     const tick = () => {
       if (!this.active || run !== this.run) return;
+      if (this.lastResult && performance.now() - this.lastResult < LIVE_MIN_INTERVAL_MS) { schedule(); return; }
       if (this.video.readyState >= 2 && this.video.videoWidth) {
         try {
-          const detection = detect(this.video); draw(this.overlay, this.video, detection);
+          const width = Math.min(LIVE_WIDTH, this.video.videoWidth);
+          const height = Math.round(width * this.video.videoHeight / this.video.videoWidth);
+          if (this.capture.width !== width || this.capture.height !== height) { this.capture.width = width; this.capture.height = height; }
+          this.captureContext.drawImage(this.video, 0, 0, width, height);
+          const refreshPose = this.frameIndex++ % LIVE_POSE_INTERVAL === 0;
+          const detection = detect(this.capture, refreshPose);
+          if (refreshPose) this.lastPose = detection.pose;
+          detection.pose = this.lastPose;
+          draw(this.overlay, this.video, detection);
           const now = performance.now(), fps = this.lastResult ? Math.min(30, 1000 / (now - this.lastResult)).toFixed(1) : '—';
           this.lastResult = now;
-          this.onChange({key: Object.keys(detection.hands).length ? 'trackingFound' : 'trackingNoHands', hands: Object.keys(detection.hands).length, body: !!detection.pose, fps});
+          const handCount = Object.keys(detection.hands).length;
+          if (handCount !== this.lastHands || now - this.lastStatusAt >= 500) {
+            this.onChange({key: handCount ? 'trackingFound' : 'trackingNoHands', hands: handCount, body: !!detection.pose, fps});
+            this.lastHands = handCount; this.lastStatusAt = now;
+          }
         } catch (error) { console.error('MediaPipe frame failed', error); this.fail('tracking_failed'); return; }
       }
-      this.timer = setTimeout(tick, 110);
+      schedule();
     };
-    tick();
+    schedule();
   }
   fail(key) { this.stop(); this.onChange({key, error: true}); }
-  stop() { this.active = false; this.run++; clearTimeout(this.timer); clearTimeout(this.watchdog); this.lastResult = null; this.overlay.getContext('2d').clearRect(0, 0, this.overlay.width, this.overlay.height); }
+  stop() {
+    this.active = false; this.run++; clearTimeout(this.timer); clearTimeout(this.watchdog);
+    if (this.frameHandle !== undefined && typeof this.video.cancelVideoFrameCallback === 'function') this.video.cancelVideoFrameCallback(this.frameHandle);
+    this.frameHandle = undefined; this.lastResult = null; this.lastPose = null;
+    this.overlay.getContext('2d').clearRect(0, 0, this.overlay.width, this.overlay.height);
+  }
 };
 window.GestureEngine = {
   async ready() { window.SignVisionModels = await models(); return true; },
@@ -134,15 +167,25 @@ window.GestureEngine = {
         duration = video.currentTime;
       }
       if (!Number.isFinite(duration) || duration <= 0) throw new Error('Не удалось прочитать длительность видео');
-      const count = Math.min(96, Math.max(1, Math.floor(duration * 12)));
+      const count = Math.min(64, Math.max(1, Math.floor(duration * CLIP_FPS)));
       const sequence = [];
+      const capture = document.createElement('canvas');
+      capture.width = Math.min(LIVE_WIDTH, video.videoWidth);
+      capture.height = Math.round(capture.width * video.videoHeight / video.videoWidth);
+      const context = capture.getContext('2d', {alpha: false});
+      let lastPose = null;
       for (let i = 0; i < count; i++) {
-        const time = Math.min(duration - .001, i / 12);
+        const time = Math.min(duration - .001, i / CLIP_FPS);
         if (Math.abs(video.currentTime - time) > .001) {
           video.currentTime = time;
           await new Promise((resolve, reject) => { video.onseeked = resolve; video.onerror = () => reject(new Error('Не удалось прочитать кадр')); });
         }
-        sequence.push(features(detect(video)));
+        context.drawImage(video, 0, 0, capture.width, capture.height);
+        const refreshPose = i % 2 === 0;
+        const detection = detect(capture, refreshPose);
+        if (refreshPose) lastPose = detection.pose;
+        detection.pose = lastPose;
+        sequence.push(features(detection));
         if (i % 6 === 0) await new Promise(resolve => setTimeout(resolve, 0));
       }
       return sequence;
