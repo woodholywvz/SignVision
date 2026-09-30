@@ -479,6 +479,10 @@ $('homeTrackButton').onclick = () => {
   setPanel('studio');
   $('trackButton').click();
 };
+$('signInLink').onclick = (event) => {
+  event.preventDefault();
+  setPanel('account');
+};
 window.addEventListener('popstate', () =>
   setPanel(new URLSearchParams(location.search).get('tab') || 'home', true),
 );

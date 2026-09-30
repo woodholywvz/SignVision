@@ -1,3 +1,6 @@
+import { pbkdf2Async } from '@noble/hashes/pbkdf2.js';
+import { sha256 as hashSha256 } from '@noble/hashes/sha2.js';
+
 const EMAIL_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_ITERATIONS = 210000;
 const encoder = new TextEncoder();
@@ -19,6 +22,16 @@ async function sha256(value) {
 }
 
 async function passwordHash(password, salt, iterations = PASSWORD_ITERATIONS) {
+  // Workers limits native PBKDF2 to 100,000 iterations. Use the same PBKDF2
+  // algorithm in JS above that limit, preserving existing credential hashes.
+  if (iterations > 100000) {
+    return hex(
+      await pbkdf2Async(hashSha256, encoder.encode(password), unhex(salt), {
+        c: iterations,
+        dkLen: 32,
+      }),
+    );
+  }
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, [
     'deriveBits',
   ]);

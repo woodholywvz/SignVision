@@ -12,6 +12,7 @@ import {
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 
 const projectRoot = realpathSync(fileURLToPath(new URL('..', import.meta.url)));
 const outputDirectory = resolve(projectRoot, 'dist');
@@ -76,7 +77,15 @@ const worker =
   readFileSync('site/lessons.js', 'utf8') +
   '\n' +
   readFileSync('site/worker.js', 'utf8');
-writeFileSync('dist/server/index.js', worker);
+const bundled = await build({
+  stdin: { contents: worker, resolveDir: projectRoot, sourcefile: 'signvision-worker.js' },
+  bundle: true,
+  platform: 'browser',
+  format: 'esm',
+  target: 'es2022',
+  write: false,
+});
+writeFileSync('dist/server/index.js', bundled.outputFiles[0].contents);
 copyFileSync('.openai/hosting.json', 'dist/.openai/hosting.json');
 mkdirSync('dist/.openai/drizzle/meta', { recursive: true });
 for (const file of readdirSync('drizzle').filter((name) => name.endsWith('.sql'))) {

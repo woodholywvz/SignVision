@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { pbkdf2Sync } from 'node:crypto';
 import worker from '../dist/server/index.js';
 import { admin, student, environment, request } from './site-env.mjs';
 
@@ -10,6 +11,58 @@ const sequence = Array.from({ length: 12 }, () => {
 });
 const call = async (env, path, data, user = admin, method) =>
   worker.fetch(request(path, data, user, method), env);
+
+test('email login preserves legacy hashes under the production PBKDF2 iteration limit', async (t) => {
+  const originalDeriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+  t.mock.method(crypto.subtle, 'deriveBits', (algorithm, ...args) => {
+    if (algorithm.name === 'PBKDF2' && algorithm.iterations > 100000) {
+      throw new DOMException(
+        'Pbkdf2 iteration counts above 100000 are not supported',
+        'NotSupportedError',
+      );
+    }
+    return originalDeriveBits(algorithm, ...args);
+  });
+  const env = environment();
+  const password = 'existing admin password 123';
+  const salt = '0123456789abcdef0123456789abcdef';
+  const hash = pbkdf2Sync(password, Buffer.from(salt, 'hex'), 210000, 32, 'sha256').toString('hex');
+  env.sqlite
+    .prepare(
+      'INSERT INTO email_credentials (account_id, email_key, salt, password_hash, iterations, failed_attempts, locked_until, created_at) VALUES (?, ?, ?, ?, ?, 0, 0, 1)',
+    )
+    .run(admin.id, admin.email, salt, hash, 210000);
+  const login = await call(env, '/api/email/login', { email: admin.email, password }, null);
+  assert.equal(login.status, 200);
+  assert.equal((await login.json()).account.id, admin.id);
+  assert.equal(
+    env.sqlite
+      .prepare('SELECT password_hash FROM email_credentials WHERE account_id = ?')
+      .get(admin.id).password_hash,
+    hash,
+  );
+  const wrong = await call(
+    env,
+    '/api/email/login',
+    { email: admin.email, password: 'incorrect' },
+    null,
+  );
+  assert.equal(wrong.status, 401);
+  const registration = await call(
+    env,
+    '/api/email/register',
+    { email: 'new@example.test', password, display_name: 'New' },
+    null,
+  );
+  assert.equal(registration.status, 200);
+  const missing = await call(
+    env,
+    '/api/email/login',
+    { email: 'missing@example.test', password },
+    null,
+  );
+  assert.equal(missing.status, 401);
+});
 
 test('first registered profile is admin and can appoint another admin', async () => {
   const env = environment({ seedAdmin: false });

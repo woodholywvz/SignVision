@@ -3,6 +3,44 @@ const test = require('node:test');
 const vm = require('node:vm');
 const fs = require('node:fs');
 
+test('the account form opens before slow lesson and admin requests finish', async () => {
+  const source = fs.readFileSync('site/learning.js', 'utf8');
+  const init = source.slice(
+    source.indexOf('  async function init()'),
+    source.indexOf('  function refreshAccountContent()'),
+  );
+  const elements = new Map();
+  const events = [];
+  let resolveMe;
+  const me = new Promise((resolve) => {
+    resolveMe = resolve;
+  });
+  const context = vm.createContext({
+    $: (id) => {
+      if (!elements.has(id)) {
+        elements.set(id, {});
+      }
+      return elements.get(id);
+    },
+    state: {},
+    location: { search: '?tab=account' },
+    URLSearchParams,
+    render: () => events.push('render'),
+    setPanel: (name) => events.push(name),
+    getJson: () => me,
+    refreshAccountContent: () => events.push('background'),
+    isAdmin: () => false,
+    renderAdminSamples() {},
+  });
+  vm.runInContext(init, context);
+  const pending = context.init();
+  assert.deepEqual(events, ['render', 'account']);
+  assert.equal(typeof elements.get('emailAuthForm').onsubmit, 'function');
+  resolveMe({ authenticated: false });
+  await pending;
+  assert.deepEqual(events, ['render', 'account', 'render', 'background']);
+});
+
 test('the result card shows advice for recorded, unknown, and waiting predictions', () => {
   const source = fs.readFileSync('site/app.js', 'utf8');
   const render = source.slice(

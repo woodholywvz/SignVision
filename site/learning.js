@@ -103,7 +103,7 @@
     if (!me?.authenticated) {
       content.append(element('p', 'muted', t('accountSignInHint')));
       const link = element('a', 'button primary', t('signInChatGPT'));
-      link.href = '/signin-with-chatgpt?return_to=%2F';
+      link.href = '/signin-with-chatgpt?return_to=%2F%3Ftab%3Daccount';
       content.append(link);
     } else if (!me.registered) {
       content.append(element('p', 'muted', t('registerHint')));
@@ -567,12 +567,9 @@
       try {
         await api('/api/register', { display_name: $('displayName').value });
         state.me = await getJson('/api/me');
-        await refreshLessons();
-        if (isAdmin()) {
-          await loadAdmin();
-        }
         render();
         setFeedback(t('profileCreated'));
+        refreshAccountContent();
       } catch (error) {
         setFeedback(error.message, true);
       }
@@ -596,12 +593,9 @@
           display_name: $('emailDisplayName').value,
         });
         state.me = await getJson('/api/me');
-        await refreshLessons();
-        if (isAdmin()) {
-          await loadAdmin();
-        }
         render();
         setFeedback(t(emailMode === 'register' ? 'emailRegistered' : 'emailLoggedIn'));
+        refreshAccountContent();
       } catch (error) {
         setFeedback(error.message, true);
       } finally {
@@ -683,15 +677,22 @@
         setFeedback(error.message, true);
       }
     };
-    state.me = await getJson('/api/me');
-    await refreshLessons();
-    if (isAdmin()) {
-      await loadAdmin();
-    }
     render();
     const requestedPanel = new URLSearchParams(location.search).get('tab');
     if (requestedPanel) {
       setPanel(requestedPanel, true);
+    }
+    state.me = await getJson('/api/me');
+    render();
+    if (requestedPanel === 'admin' && isAdmin()) {
+      setPanel('admin', true);
+    }
+    refreshAccountContent();
+  }
+  function refreshAccountContent() {
+    refreshLessons().catch((error) => setFeedback(error.message, true));
+    if (isAdmin()) {
+      loadAdmin().catch((error) => setFeedback(error.message, true));
     }
   }
   window.SignVisionLearning = {
