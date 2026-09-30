@@ -1,4 +1,5 @@
 """Download official MediaPipe Tasks model bundles for first setup."""
+
 from pathlib import Path
 from urllib.request import urlretrieve
 

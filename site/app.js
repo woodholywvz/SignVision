@@ -1,161 +1,334 @@
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 const translations = window.SIGNVISION_I18N;
 const initialQuery = new URLSearchParams(location.search).get('lang');
 let savedLanguage;
-try { savedLanguage = localStorage.getItem('signvision.language'); } catch (_) { /* private browsing */ }
-let locale = ['ru', 'en'].includes(initialQuery) ? initialQuery :
-  (['ru', 'en'].includes(savedLanguage) ? savedLanguage : (navigator.language || 'ru').toLowerCase().startsWith('ru') ? 'ru' : 'en');
-let stream, recorder, chunks = [], clip, startedAt, timerId, phrases = [], counts = {};
-let resultState = {phase: 'waiting'}, feedback = '', evalState = {phase: 'idle'};
-let busy = false, cameraStarting = false, cameraRequest = 0;
+try {
+  savedLanguage = localStorage.getItem('signvision.language');
+} catch (_) {
+  /* private browsing */
+}
+let locale = ['ru', 'en'].includes(initialQuery)
+  ? initialQuery
+  : ['ru', 'en'].includes(savedLanguage)
+    ? savedLanguage
+    : (navigator.language || 'ru').toLowerCase().startsWith('ru')
+      ? 'ru'
+      : 'en';
+let stream,
+  recorder,
+  chunks = [],
+  clip,
+  startedAt,
+  timerId,
+  phrases = [],
+  counts = {};
+let resultState = { phase: 'waiting' },
+  feedback = '',
+  evalState = { phase: 'idle' };
+let busy = false,
+  cameraStarting = false,
+  cameraRequest = 0;
 let trackState = null;
-let live = false, liveFrames = [], liveQuality = {}, liveSentAt = 0, liveFrameAt = 0, livePending = false, liveGeneration = 0;
-const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), state => {
+let live = false,
+  liveFrames = [],
+  liveQuality = {},
+  liveSentAt = 0,
+  liveFrameAt = 0,
+  livePending = false,
+  liveGeneration = 0;
+const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), (state) => {
   trackState = state;
-  if (state.error && live) { stopLive(); resultState = {phase: 'error', error: t(state.key)}; renderResult(); }
+  if (state.error && live) {
+    stopLive();
+    resultState = { phase: 'error', error: t(state.key) };
+    renderResult();
+  }
   renderTracking();
 });
-const t = (key, values = {}) => (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
-const errorText = error => error.message === 'videoTooLong' ? t('videoTooLong') : error.message;
+const t = (key, values = {}) =>
+  (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
+const errorText = (error) => (error.message === 'videoTooLong' ? t('videoTooLong') : error.message);
 function countText(number, kind) {
   const category = new Intl.PluralRules(locale).select(number);
   const ending = category === 'one' ? 'One' : category === 'few' ? 'Few' : 'Many';
   return `${number} ${t(kind + ending)}`;
 }
-const phraseName = id => id === 'unknown' ? t('unknown') : (() => {
-  const phrase = phrases.find(item => item.id === id);
-  return phrase ? (locale === 'en' ? phrase.en || phrase.text : phrase.text) : id;
-})();
+const phraseName = (id) =>
+  id === 'unknown'
+    ? t('unknown')
+    : (() => {
+        const phrase = phrases.find((item) => item.id === id);
+        return phrase ? (locale === 'en' ? phrase.en || phrase.text : phrase.text) : id;
+      })();
 
 async function api(url, data) {
-  const response = await fetch(url, {method: 'POST', headers: {'Accept-Language': locale, 'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Accept-Language': locale, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
   const payload = await response.json();
-  if (!response.ok) throw Error(typeof payload.detail === 'string' ? payload.detail : t('requestFailed'));
+  if (!response.ok) {
+    throw Error(typeof payload.detail === 'string' ? payload.detail : t('requestFailed'));
+  }
   return payload;
 }
 function options(select, includeUnknown = false, selected) {
-  select.replaceChildren(...phrases.map(phrase => {
-    const option = document.createElement('option'); option.value = phrase.id; option.textContent = phraseName(phrase.id); return option;
-  }));
+  select.replaceChildren(
+    ...phrases.map((phrase) => {
+      const option = document.createElement('option');
+      option.value = phrase.id;
+      option.textContent = phraseName(phrase.id);
+      return option;
+    }),
+  );
   if (includeUnknown) {
-    const option = document.createElement('option'); option.value = 'unknown'; option.textContent = t('unknown'); select.append(option);
+    const option = document.createElement('option');
+    option.value = 'unknown';
+    option.textContent = t('unknown');
+    select.append(option);
   }
-  if (selected && Array.from(select.options).some(option => option.value === selected)) select.value = selected;
+  if (selected && Array.from(select.options).some((option) => option.value === selected)) {
+    select.value = selected;
+  }
 }
 function renderCatalog() {
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-  $('datasetStatus').textContent = t('datasetCount', {count: countText(total, 'example')});
+  $('datasetStatus').textContent = t('datasetCount', { count: countText(total, 'example') });
   $('totalCount').textContent = countText(total, 'example');
   renderHomeStatus();
-  $('phraseGrid').replaceChildren(...phrases.map((phrase, index) => {
-    const card = document.createElement('button'); card.type = 'button'; card.className = 'phrase-card';
-    card.classList.toggle('selected', $('phraseSelect').value === phrase.id);
-    card.setAttribute('aria-pressed', String($('phraseSelect').value === phrase.id));
-    card.onclick = () => { $('phraseSelect').value = phrase.id; renderCatalog(); };
-    const number = document.createElement('span'); number.className = 'card-index'; number.textContent = String(index + 1).padStart(2, '0');
-    const title = document.createElement('strong'); title.textContent = phraseName(phrase.id);
-    const count = document.createElement('small'); count.textContent = countText(counts[phrase.id] || 0, 'recording');
-    card.append(number, title, count); return card;
-  }));
+  $('phraseGrid').replaceChildren(
+    ...phrases.map((phrase, index) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'phrase-card';
+      card.classList.toggle('selected', $('phraseSelect').value === phrase.id);
+      card.setAttribute('aria-pressed', String($('phraseSelect').value === phrase.id));
+      card.onclick = () => {
+        $('phraseSelect').value = phrase.id;
+        renderCatalog();
+      };
+      const number = document.createElement('span');
+      number.className = 'card-index';
+      number.textContent = String(index + 1).padStart(2, '0');
+      const title = document.createElement('strong');
+      title.textContent = phraseName(phrase.id);
+      const count = document.createElement('small');
+      count.textContent = countText(counts[phrase.id] || 0, 'recording');
+      card.append(number, title, count);
+      return card;
+    }),
+  );
 }
 function renderHomeStatus() {
   const ready = Object.values(counts).some(Boolean);
   $('homeStatus').textContent = t(ready ? 'homeReady' : 'homeNeedsExamples');
   $('homeStatusDetail').textContent = t(ready ? 'homeReadyDetail' : 'homeNeedsExamplesDetail');
-  $('homeTranslateButton').textContent = t(ready ? 'homeOpenTranslator' : window.SignVisionLearning?.isAdmin() ? 'homeAddExamples' : 'homeExploreLessons');
-  $('homeTranslateButton').dataset.go = ready ? 'studio' : window.SignVisionLearning?.isAdmin() ? 'dataset' : 'lessons';
+  $('homeTranslateButton').textContent = t(
+    ready
+      ? 'homeOpenTranslator'
+      : window.SignVisionLearning?.isAdmin()
+        ? 'homeAddExamples'
+        : 'homeExploreLessons',
+  );
+  $('homeTranslateButton').dataset.go = ready
+    ? 'studio'
+    : window.SignVisionLearning?.isAdmin()
+      ? 'dataset'
+      : 'lessons';
   $('homeTranslateButton').onclick = () => setPanel($('homeTranslateButton').dataset.go);
   $('homeStatus').closest('.home-readiness').classList.toggle('needs-examples', !ready);
 }
 function renderResult() {
-  const {prediction, error} = resultState;
+  const { prediction, error } = resultState;
   const noExamples = phrases.length > 0 && !Object.values(counts).some(Boolean);
   const phase = resultState.phase === 'waiting' && noExamples ? 'empty' : resultState.phase;
   $('result').classList.toggle('is-unknown', phase === 'unknown' || phase === 'error');
   $('result').classList.toggle('is-tentative', phase === 'tentative');
-  const caption = phase === 'empty' ? 'emptyDatasetState' : phase === 'tentative' ? 'tentativeState' : phase === 'listening' ? 'liveState' :
-    phase === 'recognized' ? 'recognized' : phase === 'unknown' ? 'unknownState' :
-    phase === 'processing' ? 'processing' : phase === 'error' ? 'errorState' : 'waiting';
+  const caption =
+    phase === 'empty'
+      ? 'emptyDatasetState'
+      : phase === 'tentative'
+        ? 'tentativeState'
+        : phase === 'listening'
+          ? 'liveState'
+          : phase === 'recognized'
+            ? 'recognized'
+            : phase === 'unknown'
+              ? 'unknownState'
+              : phase === 'processing'
+                ? 'processing'
+                : phase === 'error'
+                  ? 'errorState'
+                  : 'waiting';
   $('resultCaption').textContent = t(caption);
   const action = $('resultActionButton');
   action.hidden = phase !== 'empty';
-  action.textContent = t(window.SignVisionLearning?.isAdmin() ? 'addReferencesAction' : 'browseLessonsAction');
+  action.textContent = t(
+    window.SignVisionLearning?.isAdmin() ? 'addReferencesAction' : 'browseLessonsAction',
+  );
   if (phase === 'empty') {
     $('resultText').textContent = t('liveEmpty');
-    $('resultDetail').textContent = t(window.SignVisionLearning?.isAdmin() ? 'liveEmptyHint' : 'liveEmptyStudentHint');
+    $('resultDetail').textContent = t(
+      window.SignVisionLearning?.isAdmin() ? 'liveEmptyHint' : 'liveEmptyStudentHint',
+    );
   } else if (phase === 'listening') {
-    $('resultText').textContent = t('liveListening'); $('resultDetail').textContent = t('liveListeningHint');
+    $('resultText').textContent = t('liveListening');
+    $('resultDetail').textContent = t('liveListeningHint');
   } else if (phase === 'tentative') {
-    $('resultText').textContent = t('maybePhrase', {phrase: phraseName(prediction.candidate_id)});
+    $('resultText').textContent = t('maybePhrase', { phrase: phraseName(prediction.candidate_id) });
     $('resultDetail').textContent = t('advice_' + prediction.advice_code);
   } else if (phase === 'processing') {
-    $('resultText').textContent = t('analyzing'); $('resultDetail').textContent = '';
+    $('resultText').textContent = t('analyzing');
+    $('resultDetail').textContent = '';
   } else if (phase === 'error') {
-    $('resultText').textContent = t('failedRecognize'); $('resultDetail').textContent = error;
+    $('resultText').textContent = t('failedRecognize');
+    $('resultDetail').textContent = error;
   } else if (prediction) {
     $('resultText').textContent = phraseName(prediction.phrase_id || 'unknown');
-    if (live) { $('resultDetail').textContent = phase === 'unknown' ? t('liveUnknownHint') : t('liveRecognizedHint'); return; }
-    const reasonKey = prediction.reason_code === 'recognized' ? 'recognizedReason' : prediction.reason_code;
-    const details = [t(reasonKey), t('frames', {n: prediction.frames})];
-    if (prediction.distance !== null) details.push(t('distance', {n: prediction.distance.toFixed(3)}));
+    if (live) {
+      $('resultDetail').textContent =
+        phase === 'unknown' ? t('liveUnknownHint') : t('liveRecognizedHint');
+      return;
+    }
+    const reasonKey =
+      prediction.reason_code === 'recognized' ? 'recognizedReason' : prediction.reason_code;
+    const details = [t(reasonKey), t('frames', { n: prediction.frames })];
+    if (prediction.distance !== null) {
+      details.push(t('distance', { n: prediction.distance.toFixed(3) }));
+    }
     $('resultDetail').textContent = details.join(' · ');
   } else {
-    $('resultText').textContent = t('resultPlaceholder'); $('resultDetail').textContent = t('resultHint');
+    $('resultText').textContent = t('resultPlaceholder');
+    $('resultDetail').textContent = t('resultHint');
   }
 }
 function renderEvaluation() {
-  const container = $('evalResult'); container.replaceChildren();
-  if (evalState.phase === 'loading') { container.textContent = t('evaluating'); return; }
-  if (evalState.phase === 'error') { container.textContent = evalState.error; return; }
-  if (evalState.phase !== 'done') return;
+  const container = $('evalResult');
+  container.replaceChildren();
+  if (evalState.phase === 'loading') {
+    container.textContent = t('evaluating');
+    return;
+  }
+  if (evalState.phase === 'error') {
+    container.textContent = evalState.error;
+    return;
+  }
+  if (evalState.phase !== 'done') {
+    return;
+  }
   const data = evalState.data;
-  const summary = document.createElement('span'); summary.className = 'eval-summary';
-  summary.textContent = t('accuracy', {correct: data.correct, total: data.total, percent: Math.round(data.accuracy * 100)});
-  const table = document.createElement('table'); const head = document.createElement('thead'); const headerRow = document.createElement('tr');
-  ['file', 'expected', 'predicted', 'outcome'].forEach(key => { const th = document.createElement('th'); th.textContent = t(key); headerRow.append(th); });
-  head.append(headerRow); table.append(head);
-  const body = document.createElement('tbody');
-  data.results.forEach(row => {
-    const tr = document.createElement('tr');
-    [row.file, phraseName(row.expected), row.predicted ? phraseName(row.predicted) : row.error, row.correct ? '✓' : '✕'].forEach(value => {
-      const td = document.createElement('td'); td.textContent = value; tr.append(td);
-    }); body.append(tr);
+  const summary = document.createElement('span');
+  summary.className = 'eval-summary';
+  summary.textContent = t('accuracy', {
+    correct: data.correct,
+    total: data.total,
+    percent: Math.round(data.accuracy * 100),
   });
-  table.append(body); container.append(summary, table);
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  ['file', 'expected', 'predicted', 'outcome'].forEach((key) => {
+    const th = document.createElement('th');
+    th.textContent = t(key);
+    headerRow.append(th);
+  });
+  head.append(headerRow);
+  table.append(head);
+  const body = document.createElement('tbody');
+  data.results.forEach((row) => {
+    const tr = document.createElement('tr');
+    [
+      row.file,
+      phraseName(row.expected),
+      row.predicted ? phraseName(row.predicted) : row.error,
+      row.correct ? '✓' : '✕',
+    ].forEach((value) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.append(td);
+    });
+    body.append(tr);
+  });
+  table.append(body);
+  container.append(summary, table);
 }
 function applyLocale() {
-  document.documentElement.lang = locale; document.title = t('title');
-  document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
-  document.querySelectorAll('[data-i18n-aria-label]').forEach(element => element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)));
-  document.querySelectorAll('.lang-switch button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.lang === locale)));
+  document.documentElement.lang = locale;
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document
+    .querySelectorAll('[data-i18n-aria-label]')
+    .forEach((element) => element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)));
+  document
+    .querySelectorAll('.lang-switch button')
+    .forEach((button) =>
+      button.setAttribute('aria-pressed', String(button.dataset.lang === locale)),
+    );
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
   $('cameraState').classList.toggle('connected', !!stream);
-  const selected = $('phraseSelect').value; options($('phraseSelect'), false, selected);
-  document.querySelectorAll('#evalLabels select').forEach(select => options(select, true, select.value));
-  if (phrases.length) renderCatalog(); else { $('datasetStatus').textContent = t('loadingDataset'); $('homeStatus').textContent = t('homeLoading'); $('homeStatusDetail').textContent = ''; }
+  const selected = $('phraseSelect').value;
+  options($('phraseSelect'), false, selected);
+  document
+    .querySelectorAll('#evalLabels select')
+    .forEach((select) => options(select, true, select.value));
+  if (phrases.length) {
+    renderCatalog();
+  } else {
+    $('datasetStatus').textContent = t('loadingDataset');
+    $('homeStatus').textContent = t('homeLoading');
+    $('homeStatusDetail').textContent = '';
+  }
   $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
-  $('feedback').textContent = feedback; renderResult(); renderEvaluation(); renderTracking(); renderControls(); window.SignVisionLearning?.render();
+  $('feedback').textContent = feedback;
+  renderResult();
+  renderEvaluation();
+  renderTracking();
+  renderControls();
+  window.SignVisionLearning?.render();
 }
-document.querySelectorAll('.lang-switch button').forEach(button => button.addEventListener('click', () => {
-  locale = button.dataset.lang;
-  try { localStorage.setItem('signvision.language', locale); } catch (_) { /* private browsing */ }
-  const nextUrl = new URL(location.href); nextUrl.searchParams.set('lang', locale);
-  history.replaceState(null, '', nextUrl);
-  applyLocale();
-}));
+document.querySelectorAll('.lang-switch button').forEach((button) =>
+  button.addEventListener('click', () => {
+    locale = button.dataset.lang;
+    try {
+      localStorage.setItem('signvision.language', locale);
+    } catch (_) {
+      /* private browsing */
+    }
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.set('lang', locale);
+    history.replaceState(null, '', nextUrl);
+    applyLocale();
+  }),
+);
 async function refresh() {
-  const response = await fetch('/api/config'); if (!response.ok) throw Error(t('requestFailed'));
-  const config = await response.json(); phrases = config.phrases; counts = config.counts;
+  const response = await fetch('/api/config');
+  if (!response.ok) {
+    throw Error(t('requestFailed'));
+  }
+  const config = await response.json();
+  phrases = config.phrases;
+  counts = config.counts;
   applyLocale();
 }
-function setFeedback(text, error = false) { feedback = text; $('feedback').textContent = text; $('feedback').classList.toggle('error', error); }
+function setFeedback(text, error = false) {
+  feedback = text;
+  $('feedback').textContent = text;
+  $('feedback').classList.toggle('error', error);
+}
 function renderControls() {
   const recording = recorder?.state === 'recording';
   $('cameraButton').hidden = !!stream;
   $('cameraButton').disabled = busy || cameraStarting;
   $('recordButton').hidden = !stream || recording;
   $('recordButton').disabled = !stream || busy || live;
-  $('liveButton').disabled = busy || recording || cameraStarting || (phrases.length > 0 && !Object.values(counts).some(Boolean));
+  $('liveButton').disabled =
+    busy ||
+    recording ||
+    cameraStarting ||
+    (phrases.length > 0 && !Object.values(counts).some(Boolean));
   $('liveButton').setAttribute('aria-pressed', String(live));
   $('liveButton').textContent = t(live ? 'stopLive' : 'startLive');
   $('stopButton').hidden = !recording;
@@ -164,7 +337,8 @@ function renderControls() {
   $('saveButton').disabled = !clip || busy || !window.SignVisionLearning?.isAdmin();
   $('useRecordingButton').hidden = !clip || !window.SignVisionLearning?.isAdmin();
   $('evalButton').disabled = busy || !$('evalFiles').files.length;
-  $('sampleFile').disabled = busy || !window.SignVisionLearning?.isAdmin(); $('evalFiles').disabled = busy;
+  $('sampleFile').disabled = busy || !window.SignVisionLearning?.isAdmin();
+  $('evalFiles').disabled = busy;
   $('trackButton').disabled = cameraStarting || live;
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
   $('cameraState').classList.toggle('connected', !!stream);
@@ -176,70 +350,140 @@ function renderTracking() {
   $('trackingInfo').hidden = !trackState;
   $('trackingInfo').classList.toggle('error', !!trackState?.error);
   $('trackStatus').textContent = trackState ? t(trackState.key) : '';
-  $('trackingStats').textContent = trackState?.hands !== undefined ? t('trackingStats', {hands: trackState.hands, fps: trackState.fps}) : '';
+  $('trackingStats').textContent =
+    trackState?.hands !== undefined
+      ? t('trackingStats', { hands: trackState.hands, fps: trackState.fps })
+      : '';
 }
 async function startCamera() {
-  if (stream) return true;
-  if (cameraStarting) return false;
-  const request = ++cameraRequest; cameraStarting = true; renderControls();
+  if (stream) {
+    return true;
+  }
+  if (cameraStarting) {
+    return false;
+  }
+  const request = ++cameraRequest;
+  cameraStarting = true;
+  renderControls();
   try {
-    if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error(), {name: 'UnsupportedCamera'});
-    const acquired = await navigator.mediaDevices.getUserMedia({video: {width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 24}}, audio: false});
-    if (request !== cameraRequest) { acquired.getTracks().forEach(track => track.stop()); return false; }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw Object.assign(new Error(), { name: 'UnsupportedCamera' });
+    }
+    const acquired = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
+      audio: false,
+    });
+    if (request !== cameraRequest) {
+      acquired.getTracks().forEach((track) => track.stop());
+      return false;
+    }
     stream = acquired;
-    $('preview').srcObject = stream; $('placeholder').hidden = true;
+    $('preview').srcObject = stream;
+    $('placeholder').hidden = true;
     await $('preview').play();
     stream.getVideoTracks()[0].addEventListener('ended', stopCamera);
     setFeedback('');
     return true;
   } catch (error) {
     stopCamera();
-    const key = {NotAllowedError:'cameraDenied',NotFoundError:'cameraMissing',NotReadableError:'cameraBusy',UnsupportedCamera:'cameraUnsupported'}[error.name] || 'cameraFailed';
-    setFeedback(t(key), true); return false;
-  } finally { cameraStarting = false; renderControls(); }
+    const key =
+      {
+        NotAllowedError: 'cameraDenied',
+        NotFoundError: 'cameraMissing',
+        NotReadableError: 'cameraBusy',
+        UnsupportedCamera: 'cameraUnsupported',
+      }[error.name] || 'cameraFailed';
+    setFeedback(t(key), true);
+    return false;
+  } finally {
+    cameraStarting = false;
+    renderControls();
+  }
 }
 function stopCamera() {
   cameraRequest += 1;
   stopLive();
-  if (recorder?.state === 'recording') recorder.stop();
-  tracker.stop(); trackState = null; renderTracking();
-  if (stream) stream.getTracks().forEach(track => track.stop());
-  stream = null; $('preview').srcObject = null; $('placeholder').hidden = false;
+  if (recorder?.state === 'recording') {
+    recorder.stop();
+  }
+  tracker.stop();
+  trackState = null;
+  renderTracking();
+  if (stream) {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+  stream = null;
+  $('preview').srcObject = null;
+  $('placeholder').hidden = false;
   renderControls();
 }
 function setPanel(name, fromHistory = false) {
-  if (recorder?.state === 'recording') { setFeedback(t('finishRecordingFirst')); return; }
-  if (!['home', 'studio', 'dataset', 'lessons', 'evaluation', 'admin', 'account'].includes(name)) name = 'home';
-  if (name === 'admin' && !window.SignVisionLearning?.isAdmin()) name = 'account';
+  if (recorder?.state === 'recording') {
+    setFeedback(t('finishRecordingFirst'));
+    return;
+  }
+  if (!['home', 'studio', 'dataset', 'lessons', 'evaluation', 'admin', 'account'].includes(name)) {
+    name = 'home';
+  }
+  if (name === 'admin' && !window.SignVisionLearning?.isAdmin()) {
+    name = 'account';
+  }
   const current = document.querySelector('[data-panel]:not([hidden])')?.dataset.panel;
-  if (name !== 'studio') stopCamera();
-  document.querySelectorAll('[data-panel]').forEach(panel => { panel.hidden = panel.dataset.panel !== name; });
-  document.querySelectorAll('[data-tab]').forEach(button => {
-    const selected = button.dataset.tab === name; button.classList.toggle('active', selected);
-    if (selected) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  if (name !== 'studio') {
+    stopCamera();
+  }
+  document.querySelectorAll('[data-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.panel !== name;
+  });
+  document.querySelectorAll('[data-tab]').forEach((button) => {
+    const selected = button.dataset.tab === name;
+    button.classList.toggle('active', selected);
+    if (selected) {
+      button.setAttribute('aria-current', 'page');
+    } else {
+      button.removeAttribute('aria-current');
+    }
   });
   window.SignVisionLearning?.onPanel(name);
   if (current !== name) {
     if (!fromHistory) {
       const url = new URL(location.href);
-      if (name === 'home') url.searchParams.delete('tab'); else url.searchParams.set('tab', name);
+      if (name === 'home') {
+        url.searchParams.delete('tab');
+      } else {
+        url.searchParams.set('tab', name);
+      }
       history.pushState(null, '', url);
     }
     window.scrollTo(0, 0);
   }
 }
-document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => setPanel(button.dataset.tab));
-document.querySelectorAll('[data-go]').forEach(button => button.onclick = () => setPanel(button.dataset.go));
-$('homeTrackButton').onclick = () => { setPanel('studio'); $('trackButton').click(); };
-window.addEventListener('popstate', () => setPanel(new URLSearchParams(location.search).get('tab') || 'home', true));
+document
+  .querySelectorAll('[data-tab]')
+  .forEach((button) => (button.onclick = () => setPanel(button.dataset.tab)));
+document
+  .querySelectorAll('[data-go]')
+  .forEach((button) => (button.onclick = () => setPanel(button.dataset.go)));
+$('homeTrackButton').onclick = () => {
+  setPanel('studio');
+  $('trackButton').click();
+};
+window.addEventListener('popstate', () =>
+  setPanel(new URLSearchParams(location.search).get('tab') || 'home', true),
+);
 $('phraseSelect').addEventListener('change', renderCatalog);
-$('newPhraseForm').addEventListener('submit', async event => {
+$('newPhraseForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const button = $('addPhraseButton');
-  if (button.disabled) return;
+  if (button.disabled) {
+    return;
+  }
   button.disabled = true;
   try {
-    const created = await api('/api/admin/phrases', {text: $('newPhraseRu').value, en: $('newPhraseEn').value});
+    const created = await api('/api/admin/phrases', {
+      text: $('newPhraseRu').value,
+      en: $('newPhraseEn').value,
+    });
     await refresh();
     $('phraseSelect').value = created.phrase.id;
     renderCatalog();
@@ -248,124 +492,324 @@ $('newPhraseForm').addEventListener('submit', async event => {
     $('newPhraseRu').value = '';
     $('newPhraseEn').value = '';
     $('phraseCreate').open = false;
-    setFeedback(t('phraseCreated', {phrase: phraseName(created.phrase.id)}));
-  } catch (caught) { setFeedback(caught.message, true); }
-  finally { button.disabled = false; }
+    setFeedback(t('phraseCreated', { phrase: phraseName(created.phrase.id) }));
+  } catch (caught) {
+    setFeedback(caught.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 $('useRecordingButton').onclick = () => setPanel('dataset');
-$('resultActionButton').onclick = () => setPanel(window.SignVisionLearning?.isAdmin() ? 'dataset' : 'lessons');
+$('resultActionButton').onclick = () =>
+  setPanel(window.SignVisionLearning?.isAdmin() ? 'dataset' : 'lessons');
 $('cameraButton').addEventListener('click', startCamera);
 $('cameraOffButton').addEventListener('click', stopCamera);
 $('trackButton').addEventListener('click', async () => {
-  if (tracker.active) { tracker.stop(); trackState = null; renderTracking(); return; }
-  if (await startCamera()) tracker.start();
+  if (tracker.active) {
+    tracker.stop();
+    trackState = null;
+    renderTracking();
+    return;
+  }
+  if (await startCamera()) {
+    tracker.start();
+  }
 });
 function stopLive() {
-  live = false; liveGeneration++; liveFrames = []; livePending = false; tracker.onFrame = null;
+  live = false;
+  liveGeneration++;
+  liveFrames = [];
+  livePending = false;
+  tracker.onFrame = null;
   renderControls();
 }
 tracker.onFrame = null;
 function liveFrame(frame, now, quality) {
-  if (!live || now - liveFrameAt < 125) return;
+  if (!live || now - liveFrameAt < 125) {
+    return;
+  }
   liveFrameAt = now;
-  liveFrames.push({frame, at: now});
-  while (liveFrames.length > 72 || (liveFrames.length && now - liveFrames[0].at > 8500)) liveFrames.shift();
-  if (quality) liveQuality = quality;
-  if (liveFrames.length < 12 || livePending || now - liveSentAt < 1250) return;
-  liveSentAt = now; livePending = true;
+  liveFrames.push({ frame, at: now });
+  while (liveFrames.length > 72 || (liveFrames.length && now - liveFrames[0].at > 8500)) {
+    liveFrames.shift();
+  }
+  if (quality) {
+    liveQuality = quality;
+  }
+  if (liveFrames.length < 12 || livePending || now - liveSentAt < 1250) {
+    return;
+  }
+  liveSentAt = now;
+  livePending = true;
   const generation = liveGeneration;
   const duration_s = (now - liveFrames[0].at) / 1000;
-  api('/api/live', {sequence: liveFrames.map(item => item.frame), duration_s, quality: liveQuality})
-    .then(prediction => {
-      if (!live || generation !== liveGeneration) return;
-      resultState = {phase: prediction.state === 'waiting' ? 'listening' : prediction.state === 'empty_dataset' ? 'empty' : prediction.state, prediction};
+  api('/api/live', {
+    sequence: liveFrames.map((item) => item.frame),
+    duration_s,
+    quality: liveQuality,
+  })
+    .then((prediction) => {
+      if (!live || generation !== liveGeneration) {
+        return;
+      }
+      resultState = {
+        phase:
+          prediction.state === 'waiting'
+            ? 'listening'
+            : prediction.state === 'empty_dataset'
+              ? 'empty'
+              : prediction.state,
+        prediction,
+      };
       renderResult();
     })
-    .catch(error => { if (live && generation === liveGeneration) { resultState = {phase: 'error', error: error.message}; renderResult(); } })
-    .finally(() => { if (generation === liveGeneration) livePending = false; });
+    .catch((error) => {
+      if (live && generation === liveGeneration) {
+        resultState = { phase: 'error', error: error.message };
+        renderResult();
+      }
+    })
+    .finally(() => {
+      if (generation === liveGeneration) {
+        livePending = false;
+      }
+    });
 }
 $('liveButton').addEventListener('click', async () => {
-  if (live) { stopLive(); tracker.stop(); trackState = null; resultState = {phase: 'waiting'}; renderResult(); renderTracking(); return; }
-  if (!Object.values(counts).some(Boolean)) { resultState = {phase: 'empty'}; renderResult(); return; }
-  if (!await startCamera()) return;
-  live = true; liveGeneration++; liveFrames = []; liveQuality = {}; liveSentAt = 0; liveFrameAt = 0;
-  tracker.onFrame = liveFrame; resultState = {phase: 'listening'}; renderResult(); renderControls();
-  if (!tracker.active) tracker.start();
+  if (live) {
+    stopLive();
+    tracker.stop();
+    trackState = null;
+    resultState = { phase: 'waiting' };
+    renderResult();
+    renderTracking();
+    return;
+  }
+  if (!Object.values(counts).some(Boolean)) {
+    resultState = { phase: 'empty' };
+    renderResult();
+    return;
+  }
+  if (!(await startCamera())) {
+    return;
+  }
+  live = true;
+  liveGeneration++;
+  liveFrames = [];
+  liveQuality = {};
+  liveSentAt = 0;
+  liveFrameAt = 0;
+  tracker.onFrame = liveFrame;
+  resultState = { phase: 'listening' };
+  renderResult();
+  renderControls();
+  if (!tracker.active) {
+    tracker.start();
+  }
 });
 window.addEventListener('pagehide', stopCamera);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { stopLive(); tracker.stop(); trackState = null; renderTracking(); } });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopLive();
+    tracker.stop();
+    trackState = null;
+    renderTracking();
+  }
+});
 $('recordButton').addEventListener('click', () => {
-  if (!stream || busy) return;
-  if (!window.MediaRecorder) { setFeedback(t('unsupportedRecording'), true); return; }
-  const mime = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type));
-  if (!mime) { setFeedback(t('unsupportedRecording')); return; }
-  chunks = []; clip = null; $('saveButton').disabled = true; startedAt = Date.now();
-  try { recorder = new MediaRecorder(stream, {mimeType: mime}); }
-  catch (_) { setFeedback(t('unsupportedRecording'), true); renderControls(); return; }
-  recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+  if (!stream || busy) {
+    return;
+  }
+  if (!window.MediaRecorder) {
+    setFeedback(t('unsupportedRecording'), true);
+    return;
+  }
+  const mime = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((type) =>
+    MediaRecorder.isTypeSupported(type),
+  );
+  if (!mime) {
+    setFeedback(t('unsupportedRecording'));
+    return;
+  }
+  chunks = [];
+  clip = null;
+  $('saveButton').disabled = true;
+  startedAt = Date.now();
+  try {
+    recorder = new MediaRecorder(stream, { mimeType: mime });
+  } catch (_) {
+    setFeedback(t('unsupportedRecording'), true);
+    renderControls();
+    return;
+  }
+  recorder.ondataavailable = (event) => {
+    if (event.data.size) {
+      chunks.push(event.data);
+    }
+  };
   recorder.onstop = async () => {
-    clip = new Blob(chunks, {type: mime}); $('saveButton').disabled = false;
-    $('recordBadge').classList.remove('visible'); clearInterval(timerId);
-    busy = true; renderControls();
-    resultState = {phase: 'processing'}; renderResult();
+    clip = new Blob(chunks, { type: mime });
+    $('saveButton').disabled = false;
+    $('recordBadge').classList.remove('visible');
+    clearInterval(timerId);
+    busy = true;
+    renderControls();
+    resultState = { phase: 'processing' };
+    renderResult();
     try {
       const sequence = await window.GestureEngine.extract(clip);
       const practicePhrase = window.SignVisionLearning?.practicePhrase;
-      const practice = practicePhrase ? await api(`/api/lessons/${practicePhrase}/practice`, {sequence}) : null;
-      const prediction = practice?.prediction || await api('/api/recognize', {sequence});
-      resultState = {phase: prediction.phrase_id ? 'recognized' : 'unknown', prediction}; renderResult();
-      if (practice) await window.SignVisionLearning.onPracticeResult(practice);
-    } catch (error) { resultState = {phase: 'error', error: errorText(error)}; renderResult(); }
-    finally { busy = false; renderControls(); }
+      const practice = practicePhrase
+        ? await api(`/api/lessons/${practicePhrase}/practice`, { sequence })
+        : null;
+      const prediction = practice?.prediction || (await api('/api/recognize', { sequence }));
+      resultState = { phase: prediction.phrase_id ? 'recognized' : 'unknown', prediction };
+      renderResult();
+      if (practice) {
+        await window.SignVisionLearning.onPracticeResult(practice);
+      }
+    } catch (error) {
+      resultState = { phase: 'error', error: errorText(error) };
+      renderResult();
+    } finally {
+      busy = false;
+      renderControls();
+    }
   };
-  try { recorder.start(); }
-  catch (_) { setFeedback(t('unsupportedRecording'), true); renderControls(); return; }
-  $('timer').textContent = '0:00'; $('recordBadge').classList.add('visible'); renderControls();
+  try {
+    recorder.start();
+  } catch (_) {
+    setFeedback(t('unsupportedRecording'), true);
+    renderControls();
+    return;
+  }
+  $('timer').textContent = '0:00';
+  $('recordBadge').classList.add('visible');
+  renderControls();
   timerId = setInterval(() => {
     const seconds = Math.floor((Date.now() - startedAt) / 1000);
     $('timer').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-    if (seconds >= 8) $('stopButton').click();
+    if (seconds >= 8) {
+      $('stopButton').click();
+    }
   }, 200);
 });
-$('stopButton').addEventListener('click', () => { if (recorder?.state === 'recording') recorder.stop(); });
+$('stopButton').addEventListener('click', () => {
+  if (recorder?.state === 'recording') {
+    recorder.stop();
+  }
+});
 $('saveButton').addEventListener('click', async () => {
-  if (!clip || busy) return;
-  busy = true; renderControls();
-  try { setFeedback(t('saving')); const sequence = await window.GestureEngine.extract(clip); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); await window.SignVisionLearning?.refreshLessons(); await window.SignVisionLearning?.loadAdmin(); setFeedback(t('saved', {n: data.frames})); }
-  catch (error) { setFeedback(errorText(error), true); }
-  finally { busy = false; renderControls(); }
+  if (!clip || busy) {
+    return;
+  }
+  busy = true;
+  renderControls();
+  try {
+    setFeedback(t('saving'));
+    const sequence = await window.GestureEngine.extract(clip);
+    const data = await api('/api/samples', {
+      phrase_id: $('phraseSelect').value,
+      sequence,
+      duration_s: sequence.length / 8,
+    });
+    counts = data.counts;
+    renderCatalog();
+    await window.SignVisionLearning?.refreshLessons();
+    await window.SignVisionLearning?.loadAdmin();
+    setFeedback(t('saved', { n: data.frames }));
+  } catch (error) {
+    setFeedback(errorText(error), true);
+  } finally {
+    busy = false;
+    renderControls();
+  }
 });
-$('sampleFile').addEventListener('change', async event => {
-  const file = event.target.files[0]; if (!file || busy) return;
-  busy = true; renderControls();
-  try { setFeedback(t('uploading')); const sequence = await window.GestureEngine.extract(file); const data = await api('/api/samples', {phrase_id: $('phraseSelect').value, sequence, duration_s: sequence.length / 8}); counts = data.counts; renderCatalog(); await window.SignVisionLearning?.refreshLessons(); await window.SignVisionLearning?.loadAdmin(); setFeedback(t('uploaded', {n: data.frames})); }
-  catch (error) { setFeedback(errorText(error), true); }
-  finally { event.target.value = ''; busy = false; renderControls(); }
+$('sampleFile').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file || busy) {
+    return;
+  }
+  busy = true;
+  renderControls();
+  try {
+    setFeedback(t('uploading'));
+    const sequence = await window.GestureEngine.extract(file);
+    const data = await api('/api/samples', {
+      phrase_id: $('phraseSelect').value,
+      sequence,
+      duration_s: sequence.length / 8,
+    });
+    counts = data.counts;
+    renderCatalog();
+    await window.SignVisionLearning?.refreshLessons();
+    await window.SignVisionLearning?.loadAdmin();
+    setFeedback(t('uploaded', { n: data.frames }));
+  } catch (error) {
+    setFeedback(errorText(error), true);
+  } finally {
+    event.target.value = '';
+    busy = false;
+    renderControls();
+  }
 });
-$('evalFiles').addEventListener('change', event => {
-  $('evalLabels').replaceChildren(...Array.from(event.target.files).map((file, index) => {
-    const row = document.createElement('div'); row.className = 'eval-line';
-    const name = document.createElement('span'); name.textContent = file.name;
-    const select = document.createElement('select'); select.dataset.index = index; select.setAttribute('aria-label', file.name);
-    options(select, true); row.append(name, select); return row;
-  }));
-  renderControls(); evalState = {phase: 'idle'}; renderEvaluation();
+$('evalFiles').addEventListener('change', (event) => {
+  $('evalLabels').replaceChildren(
+    ...Array.from(event.target.files).map((file, index) => {
+      const row = document.createElement('div');
+      row.className = 'eval-line';
+      const name = document.createElement('span');
+      name.textContent = file.name;
+      const select = document.createElement('select');
+      select.dataset.index = index;
+      select.setAttribute('aria-label', file.name);
+      options(select, true);
+      row.append(name, select);
+      return row;
+    }),
+  );
+  renderControls();
+  evalState = { phase: 'idle' };
+  renderEvaluation();
 });
 $('evalButton').addEventListener('click', async () => {
-  if (busy) return;
-  const files = Array.from($('evalFiles').files); if (!files.length) { evalState = {phase: 'error', error: t('noVideos')}; renderEvaluation(); return; }
-  busy = true; renderControls(); evalState = {phase: 'loading'}; renderEvaluation();
+  if (busy) {
+    return;
+  }
+  const files = Array.from($('evalFiles').files);
+  if (!files.length) {
+    evalState = { phase: 'error', error: t('noVideos') };
+    renderEvaluation();
+    return;
+  }
+  busy = true;
+  renderControls();
+  evalState = { phase: 'loading' };
+  renderEvaluation();
   try {
     const items = [];
-    for (const [index, file] of files.entries()) items.push({file: file.name, expected: $('evalLabels').querySelector(`select[data-index="${index}"]`).value, sequence: await window.GestureEngine.extract(file)});
-    evalState = {phase: 'done', data: await api('/api/evaluate', {items})};
+    for (const [index, file] of files.entries()) {
+      items.push({
+        file: file.name,
+        expected: $('evalLabels').querySelector(`select[data-index="${index}"]`).value,
+        sequence: await window.GestureEngine.extract(file),
+      });
+    }
+    evalState = { phase: 'done', data: await api('/api/evaluate', { items }) };
+  } catch (error) {
+    evalState = { phase: 'error', error: errorText(error) };
   }
-  catch (error) { evalState = {phase: 'error', error: errorText(error)}; }
-  busy = false; renderControls(); renderEvaluation();
+  busy = false;
+  renderControls();
+  renderEvaluation();
 });
-applyLocale(); renderControls(); refresh().catch(error => setFeedback(error.message, true));
-window.SignVisionLearning.init().catch(error => setFeedback(error.message, true));
+applyLocale();
+renderControls();
+refresh().catch((error) => setFeedback(error.message, true));
+window.SignVisionLearning.init().catch((error) => setFeedback(error.message, true));
 if (new URLSearchParams(location.search).has('mediaTest')) {
   setFeedback('Loading MediaPipe…');
-  window.GestureEngine.selfTest().then(hands => setFeedback(`MediaPipe ready · hands: ${hands}`, hands < 1)).catch(error => setFeedback(error.message, true));
+  window.GestureEngine.selfTest()
+    .then((hands) => setFeedback(`MediaPipe ready · hands: ${hands}`, hands < 1))
+    .catch((error) => setFeedback(error.message, true));
 }

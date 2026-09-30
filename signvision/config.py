@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
-import yaml
 
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
@@ -45,14 +45,24 @@ def load_settings(path: Path = ROOT / "config.yaml") -> Settings:
     phrases = tuple(Phrase(**item) for item in raw["phrases"])
     if not phrases or len({p.id for p in phrases}) != len(phrases):
         raise ValueError("Список фраз должен быть непустым, ID должны быть уникальны")
-    if any(not ID_PATTERN.fullmatch(p.id) or not p.text.strip() or
-           (p.en is not None and not p.en.strip()) for p in phrases):
+    if any(
+        not ID_PATTERN.fullmatch(p.id)
+        or not p.text.strip()
+        or (p.en is not None and not p.en.strip())
+        for p in phrases
+    ):
         raise ValueError("Неверный ID или текст фразы")
     r = raw["recognition"]
     settings = Settings(phrases=phrases, **r)
-    if not (1 <= settings.neighbors <= 20 and 0 < settings.min_frames < settings.max_frames
-            and settings.target_frames >= 2 and settings.sample_fps >= 1
-            and 0 <= settings.min_hand_ratio <= 1 and settings.max_video_mb > 0
-            and settings.max_distance > 0 and settings.min_margin >= 0):
+    if not (
+        1 <= settings.neighbors <= 20
+        and 0 < settings.min_frames < settings.max_frames
+        and settings.target_frames >= 2
+        and settings.sample_fps >= 1
+        and 0 <= settings.min_hand_ratio <= 1
+        and settings.max_video_mb > 0
+        and settings.max_distance > 0
+        and settings.min_margin >= 0
+    ):
         raise ValueError("Неверные параметры распознавания")
     return settings

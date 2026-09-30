@@ -1,8 +1,10 @@
 """OpenCV video decoding and MediaPipe Tasks landmark tracking."""
+
 from __future__ import annotations
 
-from pathlib import Path
 import logging
+from pathlib import Path
+
 import cv2
 import numpy as np
 
@@ -15,7 +17,9 @@ LOG = logging.getLogger(__name__)
 def extract_video(path: Path, sample_fps: int, max_frames: int) -> np.ndarray:
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
-        raise ValueError("Не удалось открыть видео. Используйте MP4 или WebM с поддерживаемым кодеком")
+        raise ValueError(
+            "Не удалось открыть видео. Используйте MP4 или WebM с поддерживаемым кодеком"
+        )
     fps = capture.get(cv2.CAP_PROP_FPS)
     fps = fps if np.isfinite(fps) and fps > 0 else float(sample_fps)
     step = max(1, round(fps / sample_fps))

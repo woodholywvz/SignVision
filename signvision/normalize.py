@@ -1,4 +1,5 @@
 """Turn MediaPipe landmarks into translation/scale normalized temporal features."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,8 +33,11 @@ def frame_features(hands: dict[str, object], pose: object | None) -> np.ndarray:
         visible = [h for h in hand_points.values() if h is not None]
         if visible:
             origin = np.mean([h[0] for h in visible], axis=0)
-            scale = max(float(np.linalg.norm(visible[0][0, :2] - visible[-1][0, :2])),
-                        float(np.linalg.norm(visible[0][0, :2] - visible[0][9, :2])) * 3, 0.05)
+            scale = max(
+                float(np.linalg.norm(visible[0][0, :2] - visible[-1][0, :2])),
+                float(np.linalg.norm(visible[0][0, :2] - visible[0][9, :2])) * 3,
+                0.05,
+            )
         else:
             origin = np.zeros(3, dtype=np.float32)
             scale = 1.0
@@ -50,9 +54,15 @@ def frame_features(hands: dict[str, object], pose: object | None) -> np.ndarray:
         global_points[:, 2] = (hand[:, 2] - hand[0, 2]) / scale
         palm_scale = max(float(np.linalg.norm(hand[0, :2] - hand[9, :2])), EPS)
         local_points = (hand - hand[0]) / palm_scale
-        parts.append(np.concatenate(([1.0], global_points.ravel(), local_points.ravel())).astype(np.float32))
+        parts.append(
+            np.concatenate(([1.0], global_points.ravel(), local_points.ravel())).astype(np.float32)
+        )
         wrists.append(global_points[0])
-    body = ((pose_points[list(POSE_IDS)] - origin) / scale).ravel() if pose_points is not None else np.zeros(len(POSE_IDS) * 3)
+    body = (
+        ((pose_points[list(POSE_IDS)] - origin) / scale).ravel()
+        if pose_points is not None
+        else np.zeros(len(POSE_IDS) * 3)
+    )
     parts.extend((body.astype(np.float32), np.concatenate(wrists).astype(np.float32)))
     return np.concatenate(parts)
 
@@ -69,7 +79,9 @@ def resample_sequence(frames: list[np.ndarray] | np.ndarray, target: int = 32) -
         raise ValueError("Неверная последовательность или длина")
     old_x = np.linspace(0, 1, len(sequence))
     new_x = np.linspace(0, 1, target)
-    result = np.stack([np.interp(new_x, old_x, sequence[:, i]) for i in range(sequence.shape[1])], axis=1)
+    result = np.stack(
+        [np.interp(new_x, old_x, sequence[:, i]) for i in range(sequence.shape[1])], axis=1
+    )
     # Keep visibility masks discrete; absent hands must not appear by interpolation.
     nearest = np.rint(new_x * (len(sequence) - 1)).astype(int)
     for mask_index in (0, HAND_FEATURES):
@@ -77,5 +89,5 @@ def resample_sequence(frames: list[np.ndarray] | np.ndarray, target: int = 32) -
     # A missing hand cannot acquire interpolated finger coordinates.
     for mask_index in (0, HAND_FEATURES):
         missing = result[:, mask_index] == 0
-        result[missing, mask_index + 1:mask_index + HAND_FEATURES] = 0
+        result[missing, mask_index + 1 : mask_index + HAND_FEATURES] = 0
     return result.astype(np.float32)

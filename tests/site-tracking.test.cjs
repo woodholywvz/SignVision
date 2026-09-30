@@ -5,24 +5,61 @@ const fs = require('node:fs');
 
 test('live tracking uses new video frames, small input, and fewer pose passes', async () => {
   const callbacks = new Map();
-  let nextHandle = 0, now = 0, handCalls = 0, poseCalls = 0, cancelled = false;
-  const context = () => ({drawImage() {}, clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, arc() {}, fill() {}});
-  const capture = {width: 0, height: 0, getContext: context};
-  const overlay = {width: 0, height: 0, getContext: context};
+  let nextHandle = 0,
+    now = 0,
+    handCalls = 0,
+    poseCalls = 0,
+    cancelled = false;
+  const context = () => ({
+    drawImage() {},
+    clearRect() {},
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    stroke() {},
+    arc() {},
+    fill() {},
+  });
+  const capture = { width: 0, height: 0, getContext: context };
+  const overlay = { width: 0, height: 0, getContext: context };
   const video = {
-    videoWidth: 960, videoHeight: 720, readyState: 4,
-    requestVideoFrameCallback(callback) { const handle = ++nextHandle; callbacks.set(handle, callback); return handle; },
-    cancelVideoFrameCallback(handle) { cancelled = callbacks.delete(handle); },
+    videoWidth: 960,
+    videoHeight: 720,
+    readyState: 4,
+    requestVideoFrameCallback(callback) {
+      const handle = ++nextHandle;
+      callbacks.set(handle, callback);
+      return handle;
+    },
+    cancelVideoFrameCallback(handle) {
+      cancelled = callbacks.delete(handle);
+    },
   };
-  const hand = Array.from({length: 21}, (_, i) => ({x: .2 + i / 100, y: .3 + i / 100, z: 0}));
-  const pose = Array.from({length: 33}, () => ({x: .5, y: .5, z: 0, visibility: 1}));
-  const window = {SignVisionModels: {
-    hands: {detectForVideo() { handCalls++; return {landmarks: [hand], handednesses: [[{categoryName: 'Left'}]]}; }},
-    pose: {detectForVideo() { poseCalls++; return {landmarks: [pose]}; }},
-  }};
+  const hand = Array.from({ length: 21 }, (_, i) => ({ x: 0.2 + i / 100, y: 0.3 + i / 100, z: 0 }));
+  const pose = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 1 }));
+  const window = {
+    SignVisionModels: {
+      hands: {
+        detectForVideo() {
+          handCalls++;
+          return { landmarks: [hand], handednesses: [[{ categoryName: 'Left' }]] };
+        },
+      },
+      pose: {
+        detectForVideo() {
+          poseCalls++;
+          return { landmarks: [pose] };
+        },
+      },
+    },
+  };
   vm.runInNewContext(fs.readFileSync('site/tracking.js', 'utf8'), {
-    window, document: {createElement: () => capture}, performance: {now: () => now},
-    setTimeout, clearTimeout, console,
+    window,
+    document: { createElement: () => capture },
+    performance: { now: () => now },
+    setTimeout,
+    clearTimeout,
+    console,
   });
   const tracker = new window.LiveTracking(video, overlay, () => {});
   await tracker.start();
@@ -42,25 +79,54 @@ test('live tracking uses new video frames, small input, and fewer pose passes', 
 });
 
 test('clip extraction samples a long recording without processing every source frame', async () => {
-  let handCalls = 0, poseCalls = 0, currentTime = 0;
+  let handCalls = 0,
+    poseCalls = 0,
+    currentTime = 0;
   const video = {
-    duration: 8, videoWidth: 960, videoHeight: 720, readyState: 4,
-    set src(_) { queueMicrotask(() => this.onloadedmetadata?.()); },
-    set currentTime(value) { currentTime = value; queueMicrotask(() => this.onseeked?.()); },
-    get currentTime() { return currentTime; },
-    removeAttribute() {}, load() {},
+    duration: 8,
+    videoWidth: 960,
+    videoHeight: 720,
+    readyState: 4,
+    set src(_) {
+      queueMicrotask(() => this.onloadedmetadata?.());
+    },
+    set currentTime(value) {
+      currentTime = value;
+      queueMicrotask(() => this.onseeked?.());
+    },
+    get currentTime() {
+      return currentTime;
+    },
+    removeAttribute() {},
+    load() {},
   };
-  const capture = {width: 0, height: 0, getContext: () => ({drawImage() {}})};
-  const hand = Array.from({length: 21}, (_, i) => ({x: .2 + i / 100, y: .3 + i / 100, z: 0}));
-  const pose = Array.from({length: 33}, (_, i) => ({x: .4 + i / 1000, y: .5, z: 0}));
-  const window = {SignVisionModels: {
-    hands: {detectForVideo() { handCalls++; return {landmarks: [hand], handednesses: [[{categoryName: 'Left'}]]}; }},
-    pose: {detectForVideo() { poseCalls++; return {landmarks: [pose]}; }},
-  }};
+  const capture = { width: 0, height: 0, getContext: () => ({ drawImage() {} }) };
+  const hand = Array.from({ length: 21 }, (_, i) => ({ x: 0.2 + i / 100, y: 0.3 + i / 100, z: 0 }));
+  const pose = Array.from({ length: 33 }, (_, i) => ({ x: 0.4 + i / 1000, y: 0.5, z: 0 }));
+  const window = {
+    SignVisionModels: {
+      hands: {
+        detectForVideo() {
+          handCalls++;
+          return { landmarks: [hand], handednesses: [[{ categoryName: 'Left' }]] };
+        },
+      },
+      pose: {
+        detectForVideo() {
+          poseCalls++;
+          return { landmarks: [pose] };
+        },
+      },
+    },
+  };
   vm.runInNewContext(fs.readFileSync('site/tracking.js', 'utf8'), {
-    window, document: {createElement: tag => tag === 'video' ? video : capture},
-    URL: {createObjectURL: () => 'blob:test', revokeObjectURL() {}},
-    performance: {now: () => handCalls * 100}, setTimeout, clearTimeout, console,
+    window,
+    document: { createElement: (tag) => (tag === 'video' ? video : capture) },
+    URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
+    performance: { now: () => handCalls * 100 },
+    setTimeout,
+    clearTimeout,
+    console,
   });
   const sequence = await window.GestureEngine.extract({});
   assert.equal(sequence.length, 64);
@@ -75,12 +141,16 @@ test('clip extraction samples a long recording without processing every source f
 
 test('hand depth is not mixed with pose depth', () => {
   const window = {};
-  const context = vm.createContext({window});
-  vm.runInContext(fs.readFileSync('site/tracking.js', 'utf8') + '\nwindow.testFeatures = features;', context);
-  const hand = Array.from({length: 21}, (_, i) => ({x: .3 + i * .002, y: .4, z: i * .01}));
-  const pose = Array.from({length: 33}, () => ({x: .5, y: .5, z: .8}));
-  pose[11].x = .4; pose[12].x = .6;
-  const frame = window.testFeatures({hands: {Left: hand}, pose});
+  const context = vm.createContext({ window });
+  vm.runInContext(
+    fs.readFileSync('site/tracking.js', 'utf8') + '\nwindow.testFeatures = features;',
+    context,
+  );
+  const hand = Array.from({ length: 21 }, (_, i) => ({ x: 0.3 + i * 0.002, y: 0.4, z: i * 0.01 }));
+  const pose = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0.8 }));
+  pose[11].x = 0.4;
+  pose[12].x = 0.6;
+  const frame = window.testFeatures({ hands: { Left: hand }, pose });
   assert.equal(frame[3], 0);
   assert.equal(frame[280], 0);
 });

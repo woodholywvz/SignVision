@@ -1,9 +1,11 @@
 """Versioned landmark samples. Videos are processed, then discarded."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from uuid import uuid4
+
 import numpy as np
 
 from .normalize import FRAME_FEATURES
@@ -18,7 +20,11 @@ class Dataset:
         sample_id = uuid4().hex
         path = self.root / f"{sample_id}.npz"
         metadata = {"version": 1, "phrase_id": phrase_id, "source": source}
-        np.savez_compressed(path, sequence=sequence.astype(np.float32), metadata=json.dumps(metadata, ensure_ascii=False))
+        np.savez_compressed(
+            path,
+            sequence=sequence.astype(np.float32),
+            metadata=json.dumps(metadata, ensure_ascii=False),
+        )
         return sample_id
 
     def load(self, valid_ids: set[str]) -> list[tuple[str, np.ndarray]]:
@@ -30,7 +36,11 @@ class Dataset:
                     sequence = item["sequence"]
                 if metadata.get("version") != 1 or metadata.get("phrase_id") not in valid_ids:
                     continue
-                if sequence.ndim != 2 or sequence.shape[1] != FRAME_FEATURES or not np.isfinite(sequence).all():
+                if (
+                    sequence.ndim != 2
+                    or sequence.shape[1] != FRAME_FEATURES
+                    or not np.isfinite(sequence).all()
+                ):
                     continue
                 samples.append((metadata["phrase_id"], sequence))
             except (ValueError, KeyError, OSError, json.JSONDecodeError):

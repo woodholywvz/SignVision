@@ -1,5 +1,5 @@
-from fastapi.testclient import TestClient
 import numpy as np
+from fastapi.testclient import TestClient
 
 from signvision.normalize import FRAME_FEATURES
 from signvision.web import app, message, prediction_payload, settings
@@ -19,7 +19,9 @@ def test_api_config_includes_both_phrase_labels():
 def test_api_errors_follow_accept_language():
     client = TestClient(app)
     files = {"video": ("wrong.txt", b"x", "text/plain")}
-    response = client.post("/api/recognize", files=files, headers={"Accept-Language": "en-US,en;q=0.9"})
+    response = client.post(
+        "/api/recognize", files=files, headers={"Accept-Language": "en-US,en;q=0.9"}
+    )
     assert response.status_code == 400
     assert response.json()["detail"].startswith("Upload a")
     response = client.post("/api/recognize", files=files, headers={"Accept-Language": "ru"})

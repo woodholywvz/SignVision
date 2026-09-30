@@ -1,7 +1,9 @@
 """Weighted DTW and k-nearest-neighbor classification of gesture sequences."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
 
 from .normalize import FRAME_FEATURES, HAND_FEATURES, resample_sequence
@@ -24,11 +26,13 @@ def frame_distance(a: np.ndarray, b: np.ndarray) -> float:
         elif present_a:
             # Global coordinates retain wrist position; local coordinates retain finger shape.
             start = offset + 1
-            global_error = np.mean(np.abs(a[start:start + 63] - b[start:start + 63]))
-            local_error = np.mean(np.abs(a[start + 63:start + 126] - b[start + 63:start + 126]))
+            global_error = np.mean(np.abs(a[start : start + 63] - b[start : start + 63]))
+            local_error = np.mean(np.abs(a[start + 63 : start + 126] - b[start + 63 : start + 126]))
             costs.append(float(0.55 * global_error + 0.45 * local_error))
     body_start = HAND_FEATURES * 2
-    body_error = float(np.mean(np.abs(a[body_start:body_start + 24] - b[body_start:body_start + 24])))
+    body_error = float(
+        np.mean(np.abs(a[body_start : body_start + 24] - b[body_start : body_start + 24]))
+    )
     wrists_error = float(np.mean(np.abs(a[-6:] - b[-6:])))
     return float((sum(costs) + 0.25 * body_error + 0.35 * wrists_error) / (len(costs) + 0.6))
 
@@ -37,7 +41,14 @@ def dtw_distance(a: np.ndarray, b: np.ndarray, radius: int | None = None) -> flo
     """Normalized DTW with a Sakoe-Chiba band; velocities preserve motion direction."""
     a = np.asarray(a, dtype=np.float32)
     b = np.asarray(b, dtype=np.float32)
-    if a.ndim != 2 or b.ndim != 2 or a.shape[1:] != (FRAME_FEATURES,) or b.shape[1:] != (FRAME_FEATURES,) or not len(a) or not len(b):
+    if (
+        a.ndim != 2
+        or b.ndim != 2
+        or a.shape[1:] != (FRAME_FEATURES,)
+        or b.shape[1:] != (FRAME_FEATURES,)
+        or not len(a)
+        or not len(b)
+    ):
         raise ValueError("Неверная форма последовательности")
     if not np.isfinite(a).all() or not np.isfinite(b).all():
         raise ValueError("Последовательность содержит NaN/Inf")
@@ -58,12 +69,22 @@ def dtw_distance(a: np.ndarray, b: np.ndarray, radius: int | None = None) -> flo
     return float(previous[-1] / max(len(a), len(b)))
 
 
-def classify(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], *, neighbors: int,
-             max_distance: float, min_margin: float, target_frames: int = 32) -> Prediction:
+def classify(
+    sequence: np.ndarray,
+    samples: list[tuple[str, np.ndarray]],
+    *,
+    neighbors: int,
+    max_distance: float,
+    min_margin: float,
+    target_frames: int = 32,
+) -> Prediction:
     if not samples:
         return Prediction(None, None, None, "empty_dataset")
     query = resample_sequence(sequence, target_frames)
-    ranked = sorted((dtw_distance(query, resample_sequence(data, target_frames)), label) for label, data in samples)
+    ranked = sorted(
+        (dtw_distance(query, resample_sequence(data, target_frames)), label)
+        for label, data in samples
+    )
     # Compare phrases on their nearest examples so an overrepresented class
     # cannot win by sample count alone. Nearby examples smooth the class score.
     by_phrase: dict[str, list[float]] = {}
@@ -71,7 +92,7 @@ def classify(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], *, nei
         by_phrase.setdefault(label, []).append(distance)
     scores = {}
     for label, distances in by_phrase.items():
-        close = [value for value in distances if value <= distances[0] + 0.05][:max(1, neighbors)]
+        close = [value for value in distances if value <= distances[0] + 0.05][: max(1, neighbors)]
         scores[label] = 0.8 * distances[0] + 0.2 * float(np.mean(close))
     ordered = sorted(scores, key=scores.get)
     winner = ordered[0]

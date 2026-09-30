@@ -1,9 +1,16 @@
 from dataclasses import dataclass
+
 import numpy as np
 import pytest
 
 from signvision.classifier import classify, dtw_distance
-from signvision.normalize import FRAME_FEATURES, HAND_FEATURES, frame_features, hand_present, resample_sequence
+from signvision.normalize import (
+    FRAME_FEATURES,
+    HAND_FEATURES,
+    frame_features,
+    hand_present,
+    resample_sequence,
+)
 
 
 @dataclass
@@ -69,7 +76,13 @@ def test_dtw_handles_length_change_and_unknown():
     assert dtw_distance(resample_sequence(original), resample_sequence(stretched)) < 0.1
     result = classify(original, [("hello", stretched)], neighbors=1, max_distance=0.2, min_margin=0)
     assert result.phrase_id == "hello"
-    unknown = classify(np.zeros_like(original), [("hello", stretched)], neighbors=1, max_distance=0.01, min_margin=0)
+    unknown = classify(
+        np.zeros_like(original),
+        [("hello", stretched)],
+        neighbors=1,
+        max_distance=0.01,
+        min_margin=0,
+    )
     assert unknown.phrase_id is None
 
 
@@ -81,6 +94,11 @@ def test_invalid_empty_sequence():
 def test_more_examples_of_wrong_phrase_do_not_outvote_exact_match():
     exact = np.stack([frame_features({"Left": hand(i * 0.01)}, pose()) for i in range(12)])
     other = np.stack([frame_features({"Left": hand(0.12 + i * 0.01)}, pose()) for i in range(12)])
-    result = classify(exact, [("correct", exact), ("other", other), ("other", other)],
-                      neighbors=3, max_distance=0.30, min_margin=0.05)
+    result = classify(
+        exact,
+        [("correct", exact), ("other", other), ("other", other)],
+        neighbors=3,
+        max_distance=0.30,
+        min_margin=0.05,
+    )
     assert result.phrase_id == "correct"

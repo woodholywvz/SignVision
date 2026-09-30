@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import signvision.web as web
-from signvision.tracking import LandmarkTracker, MAX_FRAME_BYTES
+from signvision.tracking import MAX_FRAME_BYTES, LandmarkTracker
 
 
 def test_tracking_reuses_session_and_closes_on_disconnect(monkeypatch):
@@ -48,7 +48,9 @@ def test_missing_models_has_actionable_error(monkeypatch):
 
 def test_rejects_cross_origin_camera_connection():
     with pytest.raises(WebSocketDisconnect) as error:
-        with TestClient(web.app).websocket_connect("/api/track", headers={"Origin": "https://unrelated.example"}):
+        with TestClient(web.app).websocket_connect(
+            "/api/track", headers={"Origin": "https://unrelated.example"}
+        ):
             pass
     assert error.value.code == 1008
 

@@ -6,10 +6,19 @@
   "scripts": {
     "build": "node site/build.mjs",
     "test": "node site/build.mjs && node --test tests/site.test.mjs tests/site-tracking.test.cjs tests/site-account.test.mjs",
+    "format": "prettier --write \"site/**/*.{js,mjs,html,css,json}\" \"static/**/*.{js,html,css}\" \"tests/**/*.{js,mjs,cjs}\" \"db/**/*.ts\" \"*.{json,ts,mjs}\"",
+    "format:check": "prettier --check \"site/**/*.{js,mjs,html,css,json}\" \"static/**/*.{js,html,css}\" \"tests/**/*.{js,mjs,cjs}\" \"db/**/*.ts\" \"*.{json,ts,mjs}\"",
+    "lint:js": "eslint site static tests eslint.config.mjs",
+    "lint:python": "python -m ruff check signvision tests && python -m ruff format --check signvision tests",
+    "check": "npm run format:check && npm run lint:js && npm run lint:python && npm test && node --test tests/tracking.test.cjs && python -m pytest -q",
     "db:generate": "drizzle-kit generate"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9"
   }
 }

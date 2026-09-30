@@ -1,31 +1,47 @@
 """Browser UI and upload API for collecting, recognizing and evaluating clips."""
+
 from __future__ import annotations
 
+import asyncio
+import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-import logging
-import asyncio
 from urllib.parse import urlsplit
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from starlette.concurrency import run_in_threadpool
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from .classifier import classify
 from .config import ROOT, load_settings
 from .extract import extract_video
 from .normalize import hand_present
 from .storage import Dataset
-from .tracking import LandmarkTracker, MAX_FRAME_BYTES
+from .tracking import MAX_FRAME_BYTES, LandmarkTracker
 
 settings = load_settings()
 dataset = Dataset(ROOT / "data")
 valid_ids = {phrase.id for phrase in settings.phrases}
 log_dir = ROOT / "logs"
 log_dir.mkdir(exist_ok=True)
-logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(), logging.FileHandler(log_dir / "errors.log", encoding="utf-8")])
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_dir / "errors.log", encoding="utf-8"),
+    ],
+)
 LOG = logging.getLogger(__name__)
 app = FastAPI(title="SignVision MVP")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
@@ -77,8 +93,12 @@ def index():
 
 @app.get("/api/config")
 def config():
-    return {"phrases": [vars(p) for p in settings.phrases], "counts": dataset.counts(valid_ids),
-            "min_frames": settings.min_frames, "sample_fps": settings.sample_fps}
+    return {
+        "phrases": [vars(p) for p in settings.phrases],
+        "counts": dataset.counts(valid_ids),
+        "min_frames": settings.min_frames,
+        "sample_fps": settings.sample_fps,
+    }
 
 
 async def process(upload: UploadFile, locale: str = "ru") -> np.ndarray:
@@ -98,7 +118,9 @@ async def process(upload: UploadFile, locale: str = "ru") -> np.ndarray:
                     temporary.write(chunk)
             finally:
                 await upload.close()
-        sequence = await run_in_threadpool(extract_video, path, settings.sample_fps, settings.max_frames)
+        sequence = await run_in_threadpool(
+            extract_video, path, settings.sample_fps, settings.max_frames
+        )
     except (ValueError, RuntimeError, FileNotFoundError) as exc:
         LOG.exception("Ошибка обработки видео")
         raise HTTPException(422, message(locale, "bad_video")) from exc
@@ -132,8 +154,14 @@ async def live_tracking(socket: WebSocket):
             await socket.send_json(result)
     except WebSocketDisconnect:
         pass
-    except (FileNotFoundError, ValueError, asyncio.TimeoutError) as exc:
-        code = "missing_models" if isinstance(exc, FileNotFoundError) else "tracking_timeout" if isinstance(exc, asyncio.TimeoutError) else "invalid_frame"
+    except (TimeoutError, FileNotFoundError, ValueError) as exc:
+        code = (
+            "missing_models"
+            if isinstance(exc, FileNotFoundError)
+            else "tracking_timeout"
+            if isinstance(exc, asyncio.TimeoutError)
+            else "invalid_frame"
+        )
         await socket.send_json({"type": "error", "code": code})
         await socket.close(code=1011)
     except Exception:
@@ -158,15 +186,27 @@ async def add_sample(request: Request, video: UploadFile = File(...), phrase_id:
     return {"sample_id": sample_id, "frames": len(sequence), "counts": dataset.counts(valid_ids)}
 
 
-def prediction_payload(sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], locale: str = "ru"):
-    result = classify(sequence, samples, neighbors=settings.neighbors,
-                      max_distance=settings.max_distance, min_margin=settings.min_margin,
-                      target_frames=settings.target_frames)
+def prediction_payload(
+    sequence: np.ndarray, samples: list[tuple[str, np.ndarray]], locale: str = "ru"
+):
+    result = classify(
+        sequence,
+        samples,
+        neighbors=settings.neighbors,
+        max_distance=settings.max_distance,
+        min_margin=settings.min_margin,
+        target_frames=settings.target_frames,
+    )
     phrase = settings.phrase(result.phrase_id) if result.phrase_id else None
-    return {"phrase_id": result.phrase_id, "text": phrase.localized(locale) if phrase else message(locale, "unknown"),
-            "distance": result.distance, "margin": result.margin, "reason": message(locale, result.reason),
-            "reason_code": result.reason,
-            "frames": len(sequence)}
+    return {
+        "phrase_id": result.phrase_id,
+        "text": phrase.localized(locale) if phrase else message(locale, "unknown"),
+        "distance": result.distance,
+        "margin": result.margin,
+        "reason": message(locale, result.reason),
+        "reason_code": result.reason,
+        "frames": len(sequence),
+    }
 
 
 @app.post("/api/recognize")
@@ -177,7 +217,9 @@ async def recognize(request: Request, video: UploadFile = File(...)):
 
 
 @app.post("/api/evaluate")
-async def evaluate(request: Request, videos: list[UploadFile] = File(...), phrase_ids: list[str] = Form(...)):
+async def evaluate(
+    request: Request, videos: list[UploadFile] = File(...), phrase_ids: list[str] = Form(...)
+):
     locale = locale_for(request)
     if len(videos) != len(phrase_ids) or len(videos) > 30:
         raise HTTPException(400, message(locale, "bad_labels"))
@@ -185,13 +227,32 @@ async def evaluate(request: Request, videos: list[UploadFile] = File(...), phras
         raise HTTPException(400, message(locale, "bad_label"))
     samples = dataset.load(valid_ids)  # fixed training snapshot; test videos are never saved
     rows = []
-    for video, expected in zip(videos, phrase_ids):
+    for video, expected in zip(videos, phrase_ids, strict=True):
         try:
             result = prediction_payload(await process(video, locale), samples, locale)
-            rows.append({"file": video.filename, "expected": expected, "predicted": result["phrase_id"] or "unknown",
-                         "distance": result["distance"], "correct": (result["phrase_id"] or "unknown") == expected})
+            rows.append(
+                {
+                    "file": video.filename,
+                    "expected": expected,
+                    "predicted": result["phrase_id"] or "unknown",
+                    "distance": result["distance"],
+                    "correct": (result["phrase_id"] or "unknown") == expected,
+                }
+            )
         except HTTPException as exc:
-            rows.append({"file": video.filename, "expected": expected, "predicted": None,
-                         "correct": False, "error": exc.detail})
+            rows.append(
+                {
+                    "file": video.filename,
+                    "expected": expected,
+                    "predicted": None,
+                    "correct": False,
+                    "error": exc.detail,
+                }
+            )
     correct = sum(row["correct"] for row in rows)
-    return {"total": len(rows), "correct": correct, "accuracy": correct / len(rows), "results": rows}
+    return {
+        "total": len(rows),
+        "correct": correct,
+        "accuracy": correct / len(rows),
+        "results": rows,
+    }
