@@ -192,6 +192,13 @@ select, .text-input, textarea {
 .lesson-instructions { color: var(--ui-ink); }
 .lesson-kicker { color: var(--ui-accent); font-size: 12px; }
 .account-card, .admin-card { padding: 25px; }
+.email-auth-tabs { display: flex; gap: 7px; margin-bottom: 15px; }
+.email-auth-tabs button { flex: 1; padding: 9px 10px; border: 1px solid var(--ui-line); border-radius: 7px; background: var(--ui-surface); color: var(--ui-muted); }
+.email-auth-tabs button[aria-pressed="true"] { background: var(--ui-accent-soft); color: var(--ui-accent); border-color: var(--ui-accent); font-weight: 650; }
+.email-auth-form { display: grid; gap: 8px; margin: 12px 0; }
+.email-auth-form .button { justify-self: start; margin-top: 7px; }
+#emailAuth > .muted { margin-top: 9px; }
+#emailLink { padding-top: 18px; border-top: 1px solid var(--ui-line); }
 .admin-layout { gap: 20px; }
 .admin-user-summary, .admin-progress-label { color: var(--ui-muted); font-size: 13px; }
 .admin-user-details, .admin-row-text { font-size: 13px; }

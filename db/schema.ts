@@ -16,6 +16,24 @@ export const accounts = sqliteTable('accounts', {
   createdAt: integer('created_at').notNull(),
 });
 
+export const emailCredentials = sqliteTable('email_credentials', {
+  accountId: text('account_id').primaryKey().references(() => accounts.id),
+  emailKey: text('email_key').notNull(),
+  salt: text('salt').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  iterations: integer('iterations').notNull(),
+  failedAttempts: integer('failed_attempts').notNull().default(0),
+  lockedUntil: integer('locked_until').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+}, table => [uniqueIndex('idx_email_credentials_email').on(table.emailKey)]);
+
+export const emailSessions = sqliteTable('email_sessions', {
+  tokenHash: text('token_hash').primaryKey(),
+  accountId: text('account_id').notNull().references(() => accounts.id),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, table => [index('idx_email_sessions_account').on(table.accountId)]);
+
 export const lessonMaterials = sqliteTable('lesson_materials', {
   phraseId: text('phrase_id').primaryKey(),
   instructionsRu: text('instructions_ru').notNull().default(''),

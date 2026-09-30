@@ -1,4 +1,4 @@
-/* Account identity comes from Sites sign-in headers; this file only renders the UI. */
+/* Site accounts support ChatGPT identity and a separate email session. */
 (function () {
   let theme;
   try { theme = localStorage.getItem('signvision.theme'); } catch (_) { /* private browsing */ }
@@ -8,6 +8,7 @@
   const state = {me: null, lessons: [], completed: 0, total: 0, selected: null, users: [], usersLoading: false,
     usersError: '', samples: [], samplesError: '', practicePhrase: null};
   let editorPhrase = null;
+  let emailMode = 'login';
   const element = (tag, className, value) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -36,13 +37,26 @@
     $('themeButton').setAttribute('aria-label', t(document.documentElement.dataset.theme === 'dark' ? 'lightTheme' : 'darkTheme'));
     $('themeButton').title = $('themeButton').getAttribute('aria-label');
   }
+  function renderEmailMode() {
+    $('emailLoginTab').setAttribute('aria-pressed', String(emailMode === 'login'));
+    $('emailRegisterTab').setAttribute('aria-pressed', String(emailMode === 'register'));
+    $('emailNameField').hidden = emailMode !== 'register';
+    $('emailDisplayName').required = emailMode === 'register';
+    $('emailPassword').autocomplete = emailMode === 'register' ? 'new-password' : 'current-password';
+    $('emailSubmitButton').textContent = t(emailMode === 'register' ? 'emailRegister' : 'emailLogin');
+  }
   function renderAccount() {
     const me = state.me;
     $('signInLink').hidden = !!me?.authenticated;
     $('accountButton').hidden = !me?.authenticated;
     $('accountButton').textContent = me?.account?.display_name || t('createProfile');
     document.querySelector('[data-tab="admin"]').hidden = !isAdmin();
-    $('signOutLink').hidden = !me?.authenticated;
+    $('signOutLink').hidden = !me?.authenticated || me.auth_method !== 'chatgpt';
+    $('emailSignOutButton').hidden = !me?.authenticated || me.auth_method !== 'email';
+    $('emailAuth').hidden = !!me?.authenticated;
+    $('emailLink').hidden = !me?.registered || me.auth_method !== 'chatgpt' || me.has_email_password;
+    $('emailLinkAddress').textContent = me?.account?.email || '';
+    renderEmailMode();
     $('registrationForm').hidden = !me?.authenticated || !!me?.registered;
     if (me?.authenticated && !me?.registered && !$('displayName').value) $('displayName').value = me.suggested_name || '';
     const content = $('accountContent'); content.replaceChildren();
@@ -276,6 +290,37 @@
     $('registerButton').onclick = async () => {
       try { await api('/api/register', {display_name: $('displayName').value}); state.me = await getJson('/api/me'); await refreshLessons(); if (isAdmin()) await loadAdmin(); render(); setFeedback(t('profileCreated')); }
       catch (error) { setFeedback(error.message, true); }
+    };
+    $('emailLoginTab').onclick = () => { emailMode = 'login'; renderEmailMode(); };
+    $('emailRegisterTab').onclick = () => { emailMode = 'register'; renderEmailMode(); };
+    $('emailAuthForm').onsubmit = async event => {
+      event.preventDefault();
+      const button = $('emailSubmitButton'); button.disabled = true;
+      try {
+        await api(emailMode === 'register' ? '/api/email/register' : '/api/email/login', {
+          email: $('emailAddress').value, password: $('emailPassword').value,
+          display_name: $('emailDisplayName').value,
+        });
+        state.me = await getJson('/api/me');
+        await refreshLessons(); if (isAdmin()) await loadAdmin();
+        render(); setFeedback(t(emailMode === 'register' ? 'emailRegistered' : 'emailLoggedIn'));
+      } catch (error) { setFeedback(error.message, true); }
+      finally { $('emailPassword').value = ''; button.disabled = false; }
+    };
+    $('emailLinkForm').onsubmit = async event => {
+      event.preventDefault();
+      const button = $('emailLinkForm button'); button.disabled = true;
+      try {
+        await api('/api/email/link', {password: $('emailLinkPassword').value});
+        state.me = await getJson('/api/me'); render(); setFeedback(t('emailLinked'));
+      } catch (error) { setFeedback(error.message, true); }
+      finally { $('emailLinkPassword').value = ''; button.disabled = false; }
+    };
+    $('emailSignOutButton').onclick = async () => {
+      try {
+        await api('/api/email/logout', {});
+        state.me = await getJson('/api/me'); await refreshLessons(); render(); setPanel('account');
+      } catch (error) { setFeedback(error.message, true); }
     };
     $('adminPhrase').onchange = () => renderAdminEditor(true);
     $('samplePhraseFilter').onchange = renderAdminSamples;

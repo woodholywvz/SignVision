@@ -296,7 +296,6 @@ window.addEventListener('pagehide', stopCamera);
 document.addEventListener('visibilitychange', () => { if (document.hidden) { stopLive(); tracker.stop(); trackState = null; renderTracking(); } });
 $('recordButton').addEventListener('click', () => {
   if (!stream || busy) return;
-  if (tracker.active) { tracker.stop(); trackState = null; renderTracking(); }
   if (!window.MediaRecorder) { setFeedback(t('unsupportedRecording'), true); return; }
   const mime = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type));
   if (!mime) { setFeedback(t('unsupportedRecording')); return; }

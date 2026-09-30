@@ -21,6 +21,15 @@ export function environment({seedAdmin = true} = {}) {
   if (seedAdmin) sqlite.prepare('INSERT INTO accounts (id, email, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(admin.id, admin.email, admin.name, 'admin', 1);
   const DB = {
+    async batch(statements) {
+      sqlite.exec('BEGIN');
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+    },
     prepare(sql) {
       const args = [];
       return {

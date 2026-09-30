@@ -1,4 +1,4 @@
-import {readFileSync, mkdirSync, writeFileSync, copyFileSync} from 'node:fs';
+import {readFileSync, readdirSync, mkdirSync, writeFileSync, copyFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 
 const sources = [
@@ -20,8 +20,16 @@ mkdirSync('dist/server', {recursive: true});
 mkdirSync('dist/.openai', {recursive: true});
 const config = JSON.parse(readFileSync('site/config.json', 'utf8'));
 const worker = 'const SITE_CONFIG = ' + JSON.stringify(config) + ';\nconst SITE_ASSETS = ' + JSON.stringify(assets) + ';\n' +
-  readFileSync('site/accounts.js', 'utf8') + '\n' + readFileSync('site/phrases.js', 'utf8') + '\n' +
+  readFileSync('site/email-auth.js', 'utf8') + '\n' + readFileSync('site/accounts.js', 'utf8') + '\n' +
+  readFileSync('site/phrases.js', 'utf8') + '\n' +
   readFileSync('site/lessons.js', 'utf8') + '\n' + readFileSync('site/worker.js', 'utf8');
 writeFileSync('dist/server/index.js', worker);
 copyFileSync('.openai/hosting.json', 'dist/.openai/hosting.json');
+mkdirSync('dist/.openai/drizzle/meta', {recursive: true});
+for (const file of readdirSync('drizzle').filter(name => name.endsWith('.sql'))) {
+  copyFileSync(`drizzle/${file}`, `dist/.openai/drizzle/${file}`);
+}
+for (const file of readdirSync('drizzle/meta')) {
+  copyFileSync(`drizzle/meta/${file}`, `dist/.openai/drizzle/meta/${file}`);
+}
 console.log(`Built SignVision Site with ${sources.length} assets`);

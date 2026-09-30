@@ -216,9 +216,26 @@ export default {
     try {
       if (path === '/api/me' && request.method === 'GET') {
         if (!env.DB) throw new ApiError('Профили временно недоступны.', 503);
-        const {identity, account} = await accountFor(request, env.DB);
-        return json({authenticated: !!identity, registered: !!account, account,
+        const {identity, account, authMethod} = await accountFor(request, env.DB);
+        const hasEmailPassword = account ? !!await env.DB.prepare('SELECT account_id FROM email_credentials WHERE account_id = ?')
+          .bind(account.id).first() : false;
+        return json({authenticated: !!identity, registered: !!account, account, auth_method: authMethod || null,
+          has_email_password: hasEmailPassword,
           suggested_name: identity?.fullName || identity?.email?.split('@')[0] || ''});
+      }
+      if (path.startsWith('/api/email/')) {
+        if (!env.DB) throw new ApiError('Профили временно недоступны.', 503);
+        if (request.method !== 'POST') return error('Method not allowed', 405);
+        if (path === '/api/email/logout') {
+          const {cookie} = await logoutEmail(request, env.DB);
+          const response = json({ok: true}); response.headers.set('set-cookie', cookie); return response;
+        }
+        const data = await body(request);
+        if (path === '/api/email/link') return json(await linkEmailPassword(request, env, data));
+        const result = path === '/api/email/register' ? await registerEmail(request, env, data)
+          : path === '/api/email/login' ? await loginEmail(request, env, data) : null;
+        if (!result) return error('Not found', 404);
+        const response = json({account: result.account}); response.headers.set('set-cookie', result.cookie); return response;
       }
       if (path === '/api/lessons' && request.method === 'GET') {
         if (!env.DB) throw new ApiError('Уроки временно недоступны.', 503);

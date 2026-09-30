@@ -26,6 +26,16 @@ const API_ERROR_EN = {
   'Достигнут лимит новых фраз.': 'The custom phrase limit has been reached.',
   'Профили временно недоступны.': 'Profiles are temporarily unavailable.',
   'Уроки временно недоступны.': 'Lessons are temporarily unavailable.',
+  'Укажите корректную почту.': 'Enter a valid email address.',
+  'Пароль должен содержать от 12 до 128 символов.': 'Use a password between 12 and 128 characters.',
+  'Недопустимый источник запроса.': 'Invalid request origin.',
+  'Эта почта уже используется. Войдите через ChatGPT и добавьте пароль в профиле.': 'This email is in use. Sign in with ChatGPT and add a password in your profile.',
+  'Сначала владелец должен создать профиль через ChatGPT.': 'The site owner must create a ChatGPT profile first.',
+  'Неверная почта или пароль. После пяти ошибок вход временно блокируется.': 'Invalid email or password. Sign-in is temporarily locked after five failed attempts.',
+  'Сначала войдите через ChatGPT.': 'Sign in with ChatGPT first.',
+  'Почта профиля не совпадает с почтой ChatGPT.': 'Your profile email does not match your ChatGPT email.',
+  'Вход по почте для этого профиля уже настроен.': 'Email sign-in is already set up for this profile.',
+  'Профиль с этой почтой уже существует. Войдите в него по почте.': 'A profile with this email already exists. Sign in with email.',
 };
 
 function signedInIdentity(request) {
@@ -40,10 +50,12 @@ function signedInIdentity(request) {
 }
 
 async function accountFor(request, db) {
+  const sessionAccount = await emailSession(request, db);
+  if (sessionAccount) return {identity: {id: sessionAccount.id, email: sessionAccount.email}, account: sessionAccount, authMethod: 'email'};
   const identity = signedInIdentity(request);
   if (!identity) return {identity: null, account: null};
   const account = await db.prepare('SELECT id, email, display_name, role, created_at FROM accounts WHERE id = ?').bind(identity.id).first();
-  return {identity, account};
+  return {identity, account, authMethod: 'chatgpt'};
 }
 
 async function requireAccount(request, db) {
@@ -63,6 +75,11 @@ async function registerAccount(request, env, data) {
   const identity = signedInIdentity(request);
   if (!identity) throw new ApiError('Войдите через ChatGPT перед регистрацией.', 401);
   const db = env.DB;
+  const existingEmail = await db.prepare('SELECT id FROM accounts WHERE lower(email) = ? LIMIT 1')
+    .bind(identity.email.toLowerCase()).first();
+  if (existingEmail && existingEmail.id !== identity.id) {
+    throw new ApiError('Профиль с этой почтой уже существует. Войдите в него по почте.', 409);
+  }
   const first = await db.prepare('SELECT id FROM accounts LIMIT 1').first();
   if (!first && (!env.BOOTSTRAP_ADMIN_EMAIL || identity.email.toLowerCase() !== env.BOOTSTRAP_ADMIN_EMAIL.toLowerCase())) {
     throw new ApiError('Регистрация откроется после создания профиля владельца сайта.', 403);

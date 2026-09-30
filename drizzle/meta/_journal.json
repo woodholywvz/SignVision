@@ -15,6 +15,13 @@
       "when": 1790699604235,
       "tag": "0001_massive_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790758260919,
+      "tag": "0002_deep_bloodstrike",
+      "breakpoints": true
     }
   ]
 }

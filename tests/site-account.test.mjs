@@ -25,6 +25,46 @@ test('first registered profile is admin and can appoint another admin', async ()
   assert.equal((await demoted.json()).account.role, 'student');
 });
 
+test('email registration, login, logout and ChatGPT account linking preserve accounts', async () => {
+  const empty = environment({seedAdmin: false});
+  const emailData = {email: ' learner@example.test ', password: 'correct horse battery staple', display_name: 'Learner'};
+  assert.equal((await call(empty, '/api/email/register', emailData, null)).status, 403);
+
+  const env = environment();
+  const registered = await call(env, '/api/email/register', emailData, null);
+  assert.equal(registered.status, 200);
+  const account = (await registered.json()).account;
+  assert.equal(account.role, 'student');
+  assert.equal(account.email, 'learner@example.test');
+  const stored = env.sqlite.prepare('SELECT password_hash FROM email_credentials WHERE account_id = ?').get(account.id);
+  assert.notEqual(stored.password_hash, emailData.password);
+  const cookie = registered.headers.get('set-cookie').split(';')[0];
+  const meRequest = request('/api/me', undefined, null); meRequest.headers.set('cookie', cookie);
+  const me = await worker.fetch(meRequest, env);
+  assert.equal((await me.json()).account.id, account.id);
+  const lessonRequest = request('/api/lessons', undefined, null); lessonRequest.headers.set('cookie', cookie);
+  assert.equal((await (await worker.fetch(lessonRequest, env)).json()).total, 5);
+  assert.equal((await call(env, '/api/email/register', emailData, null)).status, 409);
+  assert.equal((await call(env, '/api/register', {display_name: 'Duplicate'},
+    {id: 'chatgpt_other', email: 'LEARNER@example.test'})).status, 409);
+
+  const logoutRequest = request('/api/email/logout', {}, null); logoutRequest.headers.set('cookie', cookie);
+  assert.equal((await worker.fetch(logoutRequest, env)).status, 200);
+  assert.equal((await (await worker.fetch(meRequest, env)).json()).authenticated, false);
+  assert.equal((await call(env, '/api/email/login', {email: emailData.email, password: 'wrong password'}, null)).status, 401);
+  const login = await call(env, '/api/email/login', {email: 'LEARNER@example.test', password: emailData.password}, null);
+  assert.equal(login.status, 200);
+  assert.ok(login.headers.get('set-cookie').includes('HttpOnly'));
+
+  const linked = await call(env, '/api/email/link', {password: 'long admin password 123'}, admin);
+  assert.equal(linked.status, 200);
+  const adminLogin = await call(env, '/api/email/login', {email: admin.email, password: 'long admin password 123'}, null);
+  const adminCookie = adminLogin.headers.get('set-cookie').split(';')[0];
+  const adminRequest = request('/api/admin/users', undefined, null); adminRequest.headers.set('cookie', adminCookie);
+  assert.equal((await worker.fetch(adminRequest, env)).status, 200);
+  assert.equal(env.sqlite.prepare('SELECT count(*) AS n FROM accounts').get().n, 2);
+});
+
 test('only admins change references and lesson material; student progress is private', async () => {
   const env = environment();
   await call(env, '/api/register', {display_name: 'Student'}, student);
