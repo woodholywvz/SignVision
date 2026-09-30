@@ -145,6 +145,46 @@
     }
     $('deleteLessonVideoButton').disabled = !lesson?.has_video;
   }
+  function renderAdminSamples() {
+    const filter = $('samplePhraseFilter');
+    const selected = filter.value;
+    const choices = [element('option', '', t('allReferencePhrases'))]; choices[0].value = '';
+    state.lessons.forEach(lesson => {
+      if (!state.samples.some(sample => sample.phrase_id === lesson.phrase_id)) return;
+      const option = element('option', '', lessonTitle(lesson)); option.value = lesson.phrase_id; choices.push(option);
+    });
+    filter.replaceChildren(...choices);
+    if (choices.some(choice => choice.value === selected)) filter.value = selected;
+    const visible = state.samples.filter(sample => !filter.value || sample.phrase_id === filter.value)
+      .sort((a, b) => a.phrase_id.localeCompare(b.phrase_id) || (b.created_at || 0) - (a.created_at || 0) || a.sample_id.localeCompare(b.sample_id));
+    $('sampleListCount').textContent = t('referenceListCount', {shown: visible.length, total: state.samples.length});
+    const sampleList = $('adminSamples'); sampleList.replaceChildren();
+    if (state.samplesError) { sampleList.append(element('p', 'admin-error', state.samplesError)); return; }
+    if (!state.samples.length) { sampleList.append(element('p', 'muted', t('noReferences'))); return; }
+    if (!visible.length) { sampleList.append(element('p', 'muted', t('noReferencesForPhrase'))); return; }
+    visible.forEach(sample => {
+      const row = element('div', 'admin-row admin-sample-row');
+      const lesson = state.lessons.find(item => item.phrase_id === sample.phrase_id);
+      const name = lesson ? lessonTitle(lesson) : sample.phrase_id;
+      const date = Number.isFinite(sample.created_at) && Number.isFinite(new Date(sample.created_at).getTime())
+        ? new Intl.DateTimeFormat(locale, {dateStyle: 'medium', timeStyle: 'short'}).format(sample.created_at)
+        : t('referenceDateUnknown');
+      const uploader = sample.uploader_name || t('referenceUploaderUnknown');
+      const label = element('div', 'admin-row-text');
+      label.append(element('strong', '', name), element('small', '', t('referenceUploadedAt', {date})),
+        element('small', '', t('referenceUploadedBy', {name: uploader})),
+        element('small', 'admin-sample-id', t('referenceId', {id: sample.sample_id.slice(0, 8)})));
+      const action = element('button', 'button quiet', t('deleteReference'));
+      action.type = 'button';
+      action.onclick = async () => {
+        if (!confirm(t('confirmDeleteReferenceDetails', {phrase: name, date, uploader, id: sample.sample_id.slice(0, 8)}))) return;
+        action.disabled = true;
+        try { await send(`/api/admin/samples/${sample.sample_id}`, 'DELETE'); await Promise.all([refreshLessons(), loadAdmin(), refresh()]); setFeedback(t('referenceDeleted')); }
+        catch (error) { action.disabled = false; setFeedback(error.message, true); }
+      };
+      row.append(label, action); sampleList.append(row);
+    });
+  }
   function renderAdmin() {
     const selected = $('adminPhrase').value;
     $('adminPhrase').replaceChildren(...state.lessons.map(lesson => {
@@ -199,21 +239,7 @@
       const footer = element('div', 'admin-user-footer'); footer.append(action);
       row.append(heading, label, bar, details, footer); users.append(row);
     });
-    const sampleList = $('adminSamples'); sampleList.replaceChildren();
-    if (state.samplesError) sampleList.append(element('p', 'admin-error', state.samplesError));
-    else if (!state.samples.length) sampleList.append(element('p', 'muted', t('noReferences')));
-    state.samples.forEach(sample => {
-      const row = element('div', 'admin-row');
-      const name = state.lessons.find(item => item.phrase_id === sample.phrase_id);
-      row.append(element('span', 'admin-row-text', name ? lessonTitle(name) : sample.phrase_id));
-      const action = element('button', 'button quiet', t('deleteReference'));
-      action.onclick = async () => {
-        if (!confirm(t('confirmDeleteReference'))) return;
-        try { await send(`/api/admin/samples/${sample.sample_id}`, 'DELETE'); await Promise.all([refreshLessons(), loadAdmin(), refresh()]); setFeedback(t('referenceDeleted')); }
-        catch (error) { setFeedback(error.message, true); }
-      };
-      row.append(action); sampleList.append(row);
-    });
+    renderAdminSamples();
   }
   function render() { renderTheme(); renderAccount(); renderLessons(); renderHomeLessons(); if (isAdmin()) renderAdmin(); renderPracticeNotice(); renderResult(); }
   async function refreshLessons() {
@@ -252,6 +278,7 @@
       catch (error) { setFeedback(error.message, true); }
     };
     $('adminPhrase').onchange = () => renderAdminEditor(true);
+    $('samplePhraseFilter').onchange = renderAdminSamples;
     $('saveLessonButton').onclick = async () => {
       try {
         await api(`/api/admin/lessons/${$('adminPhrase').value}`, {instructions_ru: $('instructionsRu').value, instructions_en: $('instructionsEn').value});

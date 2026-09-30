@@ -35,7 +35,9 @@ async function samples(bucket, catalog) {
       const response = await bucket.get(object.key);
       if (!response) continue;
       const sample = await response.json();
-      if (typeof sample.phrase_id === 'string' && validSequence(sample.sequence)) found.push({...sample, key: object.key, sample_id: object.key.split('/').pop().replace(/\.json$/, '')});
+      if (typeof sample.phrase_id === 'string' && validSequence(sample.sequence)) found.push({...sample,
+        created_at: Number.isFinite(sample.created_at) ? sample.created_at : object.uploaded ? new Date(object.uploaded).getTime() : null,
+        key: object.key, sample_id: object.key.split('/').pop().replace(/\.json$/, '')});
     }
     cursor = listed.truncated ? listed.cursor : null;
   } while (cursor && found.length < MAX_SAMPLES);
@@ -232,7 +234,8 @@ export default {
       if (path === '/api/admin/samples' && request.method === 'GET') {
         await requireAdmin(request, env.DB);
         const catalog = await phraseCatalog(env.DB);
-        return json({samples: (await samples(env.BUCKET, catalog)).map(({sample_id, phrase_id, duration_s, created_at}) => ({sample_id, phrase_id, duration_s, created_at}))});
+        return json({samples: (await samples(env.BUCKET, catalog)).map(({sample_id, phrase_id, duration_s, created_at, uploader_id, uploader_name}) =>
+          ({sample_id, phrase_id, duration_s, created_at, uploader_id: uploader_id || null, uploader_name: uploader_name || null}))});
       }
       const removeSample = path.match(/^\/api\/admin\/samples\/([0-9a-f-]+)$/);
       if (removeSample && request.method === 'DELETE') {
@@ -259,7 +262,7 @@ export default {
       if (lessonAction && lessonAction[2] === 'start') return json(await startLesson(request, env, lessonAction[1]));
       if (lessonAction && lessonAction[2] === 'practice') return json(await practiceLesson(request, env, lessonAction[1], data));
       if (path === '/api/samples') {
-        await requireAdmin(request, env.DB);
+        const uploader = await requireAdmin(request, env.DB);
         const catalog = await phraseCatalog(env.DB);
         if (!phraseIds(catalog).has(data.phrase_id)) return error('Неизвестная фраза');
         const trimmed = trimSequence(data.sequence);
@@ -271,7 +274,8 @@ export default {
         const sequence = resample(trimmed).map(frame => frame.map(value => Math.round(value * 10000) / 10000));
         const duration_s = Number.isFinite(data.duration_s) && data.duration_s > 0 && data.duration_s <= 60 ? data.duration_s * trimmed.length / data.sequence.length : null;
         const key = `samples/${data.phrase_id}/${id}.json`;
-        const saved = {phrase_id: data.phrase_id, sequence, duration_s, created_at: Date.now()};
+        const saved = {phrase_id: data.phrase_id, sequence, duration_s, created_at: Date.now(),
+          uploader_id: uploader.id, uploader_name: uploader.display_name};
         await env.BUCKET.put(key, JSON.stringify(saved), {httpMetadata: {contentType: 'application/json'}});
         existing.push({...saved, key, sample_id: id}); sampleCache.set(env.BUCKET, {at: Date.now(), items: existing});
         return json({sample_id: id, frames: trimmed.length, counts: counts(existing, catalog)});

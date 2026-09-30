@@ -196,6 +196,15 @@ select, .text-input, textarea {
 .admin-user-summary, .admin-progress-label { color: var(--ui-muted); font-size: 13px; }
 .admin-user-details, .admin-row-text { font-size: 13px; }
 .admin-user-details small { font-size: 12px; }
+.admin-sample-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 17px 0 6px; }
+.admin-sample-toolbar .field-label { margin: 0; }
+.admin-sample-toolbar select { min-width: 190px; max-width: 280px; padding: 9px 11px; }
+.admin-sample-toolbar .muted { margin-left: auto; }
+.admin-sample-row { padding: 15px 0; }
+.admin-sample-row .admin-row-text { gap: 3px; }
+.admin-sample-row .admin-row-text strong { font-size: 14px; }
+.admin-sample-row .admin-row-text small { font-size: 12px; }
+.admin-sample-id { color: var(--ui-muted); font-variant-numeric: tabular-nums; }
 .role-label { background: var(--ui-accent-soft); color: var(--ui-accent); font-size: 12px; }
 .progress-track { background: var(--ui-soft); }
 .progress-track span { background: #398362; }

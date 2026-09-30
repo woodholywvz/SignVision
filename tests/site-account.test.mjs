@@ -56,6 +56,30 @@ test('only admins change references and lesson material; student progress is pri
   assert.equal((await config.json()).counts.privet, 0);
 });
 
+test('admin reference list identifies new uploaders and keeps older references', async () => {
+  const env = environment();
+  const legacyId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const legacyDate = 1700000000000;
+  await env.BUCKET.put(`samples/privet/${legacyId}.json`, JSON.stringify({phrase_id: 'privet', sequence, created_at: legacyDate}));
+  await call(env, '/api/register', {display_name: 'Second admin'}, student);
+  await call(env, `/api/admin/users/${student.id}/role`, {role: 'admin'}, admin);
+  const uploaded = await call(env, '/api/samples', {phrase_id: 'privet', sequence}, student);
+  const uploadedId = (await uploaded.json()).sample_id;
+  assert.equal((await call(env, '/api/admin/samples', undefined, null)).status, 401);
+  const listed = await call(env, '/api/admin/samples', undefined, admin);
+  const items = (await listed.json()).samples;
+  assert.equal(items.length, 2);
+  const newItem = items.find(item => item.sample_id === uploadedId);
+  assert.equal(newItem.uploader_id, student.id);
+  assert.equal(newItem.uploader_name, 'Second admin');
+  assert.ok(newItem.created_at > legacyDate);
+  const oldItem = items.find(item => item.sample_id === legacyId);
+  assert.equal(oldItem.created_at, legacyDate);
+  assert.equal(oldItem.uploader_id, null);
+  assert.equal(oldItem.uploader_name, null);
+  assert.equal((await (await call(env, '/api/config')).json()).counts.privet, 2);
+});
+
 test('lesson video upload and removal are admin only', async () => {
   const env = environment();
   await call(env, '/api/register', {display_name: 'Student'}, student);
