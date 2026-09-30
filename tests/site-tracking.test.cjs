@@ -3,6 +3,145 @@ const test = require('node:test');
 const vm = require('node:vm');
 const fs = require('node:fs');
 
+test('reference loading releases the start button after a timeout and can recover', async () => {
+  const source = fs.readFileSync('site/app.js', 'utf8');
+  const refreshCode = source.slice(
+    source.indexOf('async function refresh()'),
+    source.indexOf('function setFeedback('),
+  );
+  let expire;
+  let failed = true;
+  const context = vm.createContext({
+    configLoading: false,
+    configError: null,
+    phrases: [],
+    counts: {},
+    AbortController,
+    renderControls() {},
+    applyLocale() {},
+    t: (key) => key,
+    setTimeout: (callback) => {
+      expire = callback;
+      return 1;
+    },
+    clearTimeout() {},
+    fetch: (_url, { signal }) =>
+      failed
+        ? new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason));
+          })
+        : Promise.resolve({
+            ok: true,
+            json: async () => ({ phrases: [{ id: 'privet' }], counts: { privet: 12 } }),
+          }),
+  });
+  vm.runInContext(refreshCode, context);
+  const first = context.refresh();
+  assert.equal(context.configLoading, true);
+  const rejected = assert.rejects(first, /referencesTimeout/);
+  expire();
+  await rejected;
+  assert.equal(context.configLoading, false);
+  assert.equal(context.configError.message, 'referencesTimeout');
+  failed = false;
+  await context.refresh();
+  assert.equal(context.configError, null);
+  assert.equal(context.counts.privet, 12);
+});
+
+test('tracking reports a stalled video stream instead of listening forever', async () => {
+  let now = 0;
+  let nextTimer = 0;
+  let cancelled = false;
+  const timers = new Map();
+  const states = [];
+  const window = { SignVisionModels: {} };
+  vm.runInNewContext(fs.readFileSync('site/tracking.js', 'utf8'), {
+    window,
+    document: { createElement: () => ({ getContext: () => ({ clearRect() {} }) }) },
+    performance: { now: () => now },
+    setTimeout: (callback, delay) => {
+      const id = ++nextTimer;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout: (id) => timers.delete(id),
+    console,
+  });
+  const tracker = new window.LiveTracking(
+    {
+      requestVideoFrameCallback: () => 1,
+      cancelVideoFrameCallback: () => {
+        cancelled = true;
+      },
+    },
+    { width: 1, height: 1, getContext: () => ({ clearRect() {} }) },
+    (state) => states.push(state),
+  );
+  await tracker.start();
+  const watchdog = [...timers.values()].find((timer) => timer.delay === 12000);
+  now = 12001;
+  watchdog.callback();
+  assert.equal(tracker.active, false);
+  assert.equal(states.at(-1).key, 'tracking_no_frames');
+  assert.equal(states.at(-1).error, true);
+  assert.equal(cancelled, true);
+});
+
+test('a timed-out live request can retry and stopping aborts its current request', async () => {
+  const source = fs.readFileSync('site/app.js', 'utf8');
+  const liveCode = source.slice(
+    source.indexOf('function stopLive()'),
+    source.indexOf("$('liveButton').addEventListener"),
+  );
+  const signals = [];
+  let expire;
+  const context = vm.createContext({
+    live: true,
+    liveGeneration: 1,
+    liveFrames: [],
+    liveQuality: {},
+    liveFrameAt: 0,
+    liveSentAt: 0,
+    livePending: false,
+    liveRequest: null,
+    resultState: { phase: 'starting' },
+    tracker: {},
+    AbortController,
+    setTimeout: (callback) => {
+      expire = callback;
+      return 1;
+    },
+    clearTimeout() {},
+    renderControls() {},
+    renderResult() {},
+    t: (key) => key,
+    api: (_url, _data, signal) =>
+      new Promise((_resolve, reject) => {
+        signals.push(signal);
+        signal.addEventListener('abort', () => reject(signal.reason));
+      }),
+  });
+  vm.runInContext(liveCode, context);
+  for (let i = 1; i <= 12; i++) {
+    context.liveFrame(Array(284).fill(0), i * 150, null);
+  }
+  assert.equal(context.resultState.phase, 'listening');
+  assert.equal(signals.length, 1);
+  assert.equal(context.livePending, true);
+  expire();
+  await new Promise(setImmediate);
+  assert.equal(context.livePending, false);
+  assert.equal(context.resultState.error, 'liveRequestTimeout');
+  context.liveFrame(Array(284).fill(0), 3400, null);
+  assert.equal(signals.length, 2);
+  context.stopLive();
+  await new Promise(setImmediate);
+  assert.equal(signals[1].aborted, true);
+  assert.equal(context.livePending, false);
+  assert.equal(context.live, false);
+});
+
 test('the account form opens before slow lesson and admin requests finish', async () => {
   const source = fs.readFileSync('site/learning.js', 'utf8');
   const init = source.slice(

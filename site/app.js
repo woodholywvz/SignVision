@@ -29,6 +29,9 @@ let busy = false,
   cameraStarting = false,
   cameraRequest = 0;
 let trackState = null;
+let configLoading = true;
+let configError = null;
+let liveRequest = null;
 let live = false,
   liveFrames = [],
   liveQuality = {},
@@ -41,6 +44,8 @@ const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), (sta
   if (state.error && live) {
     stopLive();
     resultState = { phase: 'error', error: t(state.key) };
+    renderResult();
+  } else if (live && resultState.phase === 'starting') {
     renderResult();
   }
   renderTracking();
@@ -61,11 +66,12 @@ const phraseName = (id) =>
         return phrase ? (locale === 'en' ? phrase.en || phrase.text : phrase.text) : id;
       })();
 
-async function api(url, data) {
+async function api(url, data, signal) {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Accept-Language': locale, 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+    signal,
   });
   const payload = await response.json();
   if (!response.ok) {
@@ -146,21 +152,23 @@ function renderResult() {
   $('result').classList.toggle('is-unknown', phase === 'unknown' || phase === 'error');
   $('result').classList.toggle('is-tentative', phase === 'tentative');
   const caption =
-    phase === 'empty'
-      ? 'emptyDatasetState'
-      : phase === 'tentative'
-        ? 'tentativeState'
-        : phase === 'listening'
-          ? 'liveState'
-          : phase === 'recognized'
-            ? 'recognized'
-            : phase === 'unknown'
-              ? 'unknownState'
-              : phase === 'processing'
-                ? 'processing'
-                : phase === 'error'
-                  ? 'errorState'
-                  : 'waiting';
+    phase === 'starting'
+      ? 'liveStarting'
+      : phase === 'empty'
+        ? 'emptyDatasetState'
+        : phase === 'tentative'
+          ? 'tentativeState'
+          : phase === 'listening'
+            ? 'liveState'
+            : phase === 'recognized'
+              ? 'recognized'
+              : phase === 'unknown'
+                ? 'unknownState'
+                : phase === 'processing'
+                  ? 'processing'
+                  : phase === 'error'
+                    ? 'errorState'
+                    : 'waiting';
   $('resultCaption').textContent = t(caption);
   const action = $('resultActionButton');
   action.hidden = phase !== 'empty';
@@ -172,6 +180,9 @@ function renderResult() {
     $('resultDetail').textContent = t(
       window.SignVisionLearning?.isAdmin() ? 'liveEmptyHint' : 'liveEmptyStudentHint',
     );
+  } else if (phase === 'starting') {
+    $('resultText').textContent = t('liveStarting');
+    $('resultDetail').textContent = t(trackState?.key || 'trackingLoading');
   } else if (phase === 'listening') {
     $('resultText').textContent = t('liveListening');
     $('resultDetail').textContent = prediction?.advice_code
@@ -315,14 +326,28 @@ document.querySelectorAll('.lang-switch button').forEach((button) =>
   }),
 );
 async function refresh() {
-  const response = await fetch('/api/config');
-  if (!response.ok) {
-    throw Error(t('requestFailed'));
+  configLoading = true;
+  renderControls();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(t('referencesTimeout'))), 15000);
+  try {
+    const response = await fetch('/api/config', { signal: controller.signal });
+    if (!response.ok) {
+      throw Error(t('requestFailed'));
+    }
+    const config = await response.json();
+    phrases = config.phrases;
+    counts = config.counts;
+    configError = null;
+    applyLocale();
+  } catch (error) {
+    configError = error;
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    configLoading = false;
+    renderControls();
   }
-  const config = await response.json();
-  phrases = config.phrases;
-  counts = config.counts;
-  applyLocale();
 }
 function setFeedback(text, error = false) {
   feedback = text;
@@ -336,12 +361,15 @@ function renderControls() {
   $('recordButton').hidden = !stream || recording;
   $('recordButton').disabled = !stream || busy || live;
   $('liveButton').disabled =
+    configLoading ||
     busy ||
     recording ||
     cameraStarting ||
     (phrases.length > 0 && !Object.values(counts).some(Boolean));
   $('liveButton').setAttribute('aria-pressed', String(live));
-  $('liveButton').textContent = t(live ? 'stopLive' : 'startLive');
+  $('liveButton').textContent = t(
+    configLoading && !live ? 'loadingReferences' : live ? 'stopLive' : 'startLive',
+  );
   $('stopButton').hidden = !recording;
   $('cameraOffButton').hidden = !stream;
   $('cameraOffButton').disabled = recording;
@@ -406,6 +434,8 @@ async function startCamera() {
         UnsupportedCamera: 'cameraUnsupported',
       }[error.name] || 'cameraFailed';
     setFeedback(t(key), true);
+    resultState = { phase: 'error', error: t(key) };
+    renderResult();
     window.SignVisionSounds?.play('cameraError');
     return false;
   } finally {
@@ -535,6 +565,8 @@ $('trackButton').addEventListener('click', async () => {
 function stopLive() {
   live = false;
   liveGeneration++;
+  liveRequest?.abort();
+  liveRequest = null;
   liveFrames = [];
   livePending = false;
   tracker.onFrame = null;
@@ -546,6 +578,10 @@ function liveFrame(frame, now, quality) {
     return;
   }
   liveFrameAt = now;
+  if (resultState.phase === 'starting') {
+    resultState = { phase: 'listening' };
+    renderResult();
+  }
   liveFrames.push({ frame, at: now });
   while (liveFrames.length > 72 || (liveFrames.length && now - liveFrames[0].at > 8500)) {
     liveFrames.shift();
@@ -559,12 +595,19 @@ function liveFrame(frame, now, quality) {
   liveSentAt = now;
   livePending = true;
   const generation = liveGeneration;
+  const controller = new AbortController();
+  liveRequest = controller;
+  const timeout = setTimeout(() => controller.abort(new Error(t('liveRequestTimeout'))), 12000);
   const duration_s = (now - liveFrames[0].at) / 1000;
-  api('/api/live', {
-    sequence: liveFrames.map((item) => item.frame),
-    duration_s,
-    quality: liveQuality,
-  })
+  api(
+    '/api/live',
+    {
+      sequence: liveFrames.map((item) => item.frame),
+      duration_s,
+      quality: liveQuality,
+    },
+    controller.signal,
+  )
     .then((prediction) => {
       if (!live || generation !== liveGeneration) {
         return;
@@ -587,8 +630,10 @@ function liveFrame(frame, now, quality) {
       }
     })
     .finally(() => {
+      clearTimeout(timeout);
       if (generation === liveGeneration) {
         livePending = false;
+        liveRequest = null;
       }
     });
 }
@@ -601,6 +646,17 @@ $('liveButton').addEventListener('click', async () => {
     renderResult();
     renderTracking();
     return;
+  }
+  if (configError) {
+    resultState = { phase: 'starting' };
+    renderResult();
+    try {
+      await refresh();
+    } catch (error) {
+      resultState = { phase: 'error', error: error.message };
+      renderResult();
+      return;
+    }
   }
   if (!Object.values(counts).some(Boolean)) {
     resultState = { phase: 'empty' };
@@ -617,7 +673,7 @@ $('liveButton').addEventListener('click', async () => {
   liveSentAt = 0;
   liveFrameAt = 0;
   tracker.onFrame = liveFrame;
-  resultState = { phase: 'listening' };
+  resultState = { phase: tracker.active ? 'listening' : 'starting' };
   renderResult();
   renderControls();
   if (!tracker.active) {

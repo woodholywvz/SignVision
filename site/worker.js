@@ -58,27 +58,37 @@ async function samples(bucket, catalog) {
   let cursor;
   do {
     const listed = await bucket.list({ prefix: 'samples/', cursor, limit: 1000 });
-    for (const object of listed.objects) {
-      const response = await bucket.get(object.key);
-      if (!response) {
-        continue;
-      }
-      const sample = await response.json();
-      if (typeof sample.phrase_id === 'string' && validSequence(sample.sequence)) {
-        found.push({
-          ...sample,
-          created_at: Number.isFinite(sample.created_at)
-            ? sample.created_at
-            : object.uploaded
-              ? new Date(object.uploaded).getTime()
-              : null,
-          key: object.key,
-          sample_id: object.key
-            .split('/')
-            .pop()
-            .replace(/\.json$/, ''),
-        });
-      }
+    for (
+      let offset = 0;
+      offset < listed.objects.length && found.length < MAX_SAMPLES;
+      offset += 6
+    ) {
+      const batch = await Promise.all(
+        listed.objects.slice(offset, offset + 6).map(async (object) => {
+          const response = await bucket.get(object.key);
+          if (!response) {
+            return null;
+          }
+          const sample = await response.json();
+          if (typeof sample.phrase_id === 'string' && validSequence(sample.sequence)) {
+            return {
+              ...sample,
+              created_at: Number.isFinite(sample.created_at)
+                ? sample.created_at
+                : object.uploaded
+                  ? new Date(object.uploaded).getTime()
+                  : null,
+              key: object.key,
+              sample_id: object.key
+                .split('/')
+                .pop()
+                .replace(/\.json$/, ''),
+            };
+          }
+          return null;
+        }),
+      );
+      found.push(...batch.filter(Boolean).slice(0, MAX_SAMPLES - found.length));
     }
     cursor = listed.truncated ? listed.cursor : null;
   } while (cursor && found.length < MAX_SAMPLES);

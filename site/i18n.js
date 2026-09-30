@@ -48,6 +48,8 @@ window.SIGNVISION_I18N = {
     trackingStats: 'Рук: {hands} · {fps} кадр/с',
     missing_models: 'Нужны модели отслеживания. На сервере выполните: python -m signvision.models',
     tracking_timeout: 'Отслеживание не отвечает. Попробуйте включить его ещё раз.',
+    tracking_no_frames:
+      'Камера не передаёт кадры. Проверьте разрешение браузера и включите камеру заново.',
     invalid_frame: 'Не удалось прочитать кадр камеры. Включите проверку ещё раз.',
     tracking_failed: 'Не удалось запустить отслеживание. Проверьте соединение и попробуйте снова.',
     trackingLibrary: 'Загружаем MediaPipe…',
@@ -110,6 +112,12 @@ window.SIGNVISION_I18N = {
     stopLive: 'Остановить перевод',
     liveState: 'Живой перевод',
     liveListening: 'Покажите жест',
+    liveStarting: 'Запускаем живой перевод',
+    loadingReferences: 'Загружаем эталоны…',
+    referencesTimeout:
+      'Не удалось загрузить эталоны вовремя. Проверьте интернет и нажмите «Начать живой перевод», чтобы повторить загрузку.',
+    liveRequestTimeout:
+      'Сервер не ответил вовремя. Проверяем соединение и пробуем снова; остановить перевод можно кнопкой выше.',
     liveListeningHint: 'Держите кисти в кадре. Сравнение идёт каждые несколько секунд.',
     tentativeState: 'Похоже на фразу',
     maybePhrase: 'Возможно, вы имели в виду «{phrase}»',
@@ -346,6 +354,8 @@ window.SIGNVISION_I18N = {
     trackingStats: 'Hands: {hands} · {fps} fps',
     missing_models: 'Tracking models are missing. Run on the server: python -m signvision.models',
     tracking_timeout: 'Tracking is not responding. Try switching it on again.',
+    tracking_no_frames:
+      'No frames are arriving from the camera. Check browser permissions and restart the camera.',
     invalid_frame: 'Could not read the camera frame. Try tracking again.',
     tracking_failed: 'Could not start tracking. Check your connection and try again.',
     tracking_disconnected: 'Tracking connection lost. Switch it on again.',
@@ -405,6 +415,12 @@ window.SIGNVISION_I18N = {
     stopLive: 'Stop translation',
     liveState: 'Live translation',
     liveListening: 'Show a gesture',
+    liveStarting: 'Starting live translation',
+    loadingReferences: 'Loading references…',
+    referencesTimeout:
+      'References did not load in time. Check your connection and press “Start live translation” to retry.',
+    liveRequestTimeout:
+      'The server did not respond in time. Checking the connection and retrying; use the button above to stop translation.',
     liveListeningHint: 'Keep your hands in frame. The comparison updates every few seconds.',
     tentativeState: 'Possible phrase',
     maybePhrase: 'Perhaps you meant “{phrase}”',

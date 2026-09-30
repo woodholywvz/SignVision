@@ -243,6 +243,19 @@ window.LiveTracking = class {
     this.poseMisses = 0;
     this.lastHands = -1;
     this.lastStatusAt = 0;
+    this.lastFrameAt = performance.now();
+    const checkFrames = () => {
+      if (!this.active || run !== this.run) {
+        return;
+      }
+      const idle = performance.now() - this.lastFrameAt;
+      if (idle >= 12000) {
+        this.fail('tracking_no_frames');
+      } else {
+        this.frameWatchdog = setTimeout(checkFrames, 12000 - idle);
+      }
+    };
+    this.frameWatchdog = setTimeout(checkFrames, 12000);
     const schedule = () => {
       if (!this.active || run !== this.run) {
         return;
@@ -283,6 +296,7 @@ window.LiveTracking = class {
           const now = performance.now(),
             fps = this.lastResult ? Math.min(30, 1000 / (now - this.lastResult)).toFixed(1) : '—';
           this.lastResult = now;
+          this.lastFrameAt = now;
           const handCount = Object.keys(detection.hands).length;
           if (this.onFrame) {
             let quality = null;
@@ -335,6 +349,7 @@ window.LiveTracking = class {
     this.run++;
     clearTimeout(this.timer);
     clearTimeout(this.watchdog);
+    clearTimeout(this.frameWatchdog);
     if (
       this.frameHandle !== undefined &&
       typeof this.video.cancelVideoFrameCallback === 'function'

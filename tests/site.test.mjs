@@ -8,6 +8,30 @@ const sequence = Array.from({ length: 12 }, () => {
   return frame;
 });
 
+test('reference loading reads bounded batches and keeps every existing sample', async () => {
+  const env = environment();
+  for (let i = 0; i < 17; i++) {
+    await env.BUCKET.put(
+      `samples/privet/${i}.json`,
+      JSON.stringify({ phrase_id: 'privet', sequence }),
+    );
+  }
+  const read = env.BUCKET.get.bind(env.BUCKET);
+  let active = 0,
+    peak = 0;
+  env.BUCKET.get = async (key) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(setImmediate);
+    const result = await read(key);
+    active--;
+    return result;
+  };
+  const config = await (await worker.fetch(request('/api/config'), env)).json();
+  assert.equal(config.counts.privet, 17);
+  assert.ok(peak > 1 && peak <= 6);
+});
+
 test('hosted Site saves landmarks and recognizes a known sequence', async () => {
   const env = environment();
   const saved = await worker.fetch(request('/api/samples', { phrase_id: 'privet', sequence }), env);
