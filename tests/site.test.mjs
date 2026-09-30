@@ -115,7 +115,7 @@ test('recorded uncertain gestures and missing hands receive actionable feedback'
 test('overlapping hello and goodbye references are ambiguous rather than a confident word', async () => {
   const env = environment();
   for (const phrase_id of ['privet', 'do_svidaniya']) {
-    await worker.fetch(request('/api/samples', { phrase_id, sequence }), env);
+    await worker.fetch(request('/api/samples', { phrase_id, sequence, duration_s: 2 }), env);
   }
   for (const path of ['/api/recognize', '/api/live']) {
     const result = await (
@@ -125,6 +125,79 @@ test('overlapping hello and goodbye references are ambiguous rather than a confi
     assert.equal(result.reason_code, 'ambiguous');
     assert.equal(result.phrase_id, null);
     assert.equal(result.advice_code, 'hand_shape');
+  }
+});
+
+function movingHand({ length = 24, depth = 0, shift = 0, endpointNoise = 0 } = {}) {
+  return Array.from({ length }, (_, index) => {
+    const frame = Array(284).fill(0);
+    frame[0] = 1;
+    const position = index / (length - 1);
+    for (let point = 0; point < 21; point++) {
+      frame[1 + point * 3] = position + shift;
+      frame[2 + point * 3] = 0.2 + shift;
+      frame[3 + point * 3] = point ? depth : 0;
+      frame[64 + point * 3] = point / 21;
+      frame[65 + point * 3] = point / 42;
+      frame[66 + point * 3] = point ? depth : 0;
+    }
+    frame[278] = position + shift;
+    if (index === length - 1) {
+      frame[278] += endpointNoise;
+      for (let point = 0; point < 21; point++) {
+        frame[1 + point * 3] += endpointNoise;
+      }
+    }
+    return frame;
+  });
+}
+
+test('finger depth distinguishes nearby classes despite a small position shift', async () => {
+  const env = environment();
+  for (const [phrase_id, depth] of [
+    ['privet', 0],
+    ['do_svidaniya', 0.65],
+  ]) {
+    await worker.fetch(
+      request('/api/samples', { phrase_id, sequence: movingHand({ depth }), duration_s: 3 }),
+      env,
+    );
+  }
+  for (const path of ['/api/recognize', '/api/live']) {
+    const result = await (
+      await worker.fetch(
+        request(path, {
+          sequence: movingHand({ depth: 0.08, shift: 0.18 }),
+          duration_s: 3,
+        }),
+        env,
+      )
+    ).json();
+    assert.equal(result.phrase_id, 'privet');
+    assert.ok(result.margin > 0.05);
+  }
+});
+
+test('one noisy wrist endpoint does not reject a matching trajectory', async () => {
+  const env = environment();
+  await worker.fetch(
+    request('/api/samples', { phrase_id: 'privet', sequence: movingHand(), duration_s: 3 }),
+    env,
+  );
+  for (const endpointNoise of [-2.2, 2.2]) {
+    for (const path of ['/api/recognize', '/api/live']) {
+      const result = await (
+        await worker.fetch(
+          request(path, {
+            sequence: movingHand({ shift: 0.1, endpointNoise }),
+            duration_s: 3,
+          }),
+          env,
+        )
+      ).json();
+      assert.equal(result.phrase_id, 'privet');
+      assert.ok(result.distance < 0.3);
+    }
   }
 });
 

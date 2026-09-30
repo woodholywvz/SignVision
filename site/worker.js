@@ -125,14 +125,10 @@ function resample(frames, target = 32) {
 }
 function averageDiff(a, b, start, length) {
   let sum = 0;
-  let weight = 0;
   for (let k = 0; k < length; k++) {
-    // MediaPipe depth is noisier than the image plane, especially for fingers.
-    const coordinateWeight = k % 3 === 2 ? 0.2 : 1;
-    sum += coordinateWeight * Math.abs(a[start + k] - b[start + k]);
-    weight += coordinateWeight;
+    sum += Math.abs(a[start + k] - b[start + k]);
   }
-  return sum / weight;
+  return sum / length;
 }
 function frameDistance(a, b) {
   let sum = 0,
@@ -179,23 +175,43 @@ function distance(a, b) {
     }
     previous = current;
   }
-  // DTW can align a partial/reversed movement to repeated poses. Keep the
-  // complete displacement of each visible wrist as additional evidence.
-  let trajectory = 0;
-  let visibleHands = 0;
+  // Reject clear opposing motion, using several frames so one noisy endpoint
+  // cannot penalize an otherwise matching gesture. Retain the original DTW scale.
+  let opposing = false;
   for (const [mask, offset] of [
     [0, FEATURES - 6],
     [HAND, FEATURES - 3],
   ]) {
-    if (a[0][mask] > 0.5 && a[n - 1][mask] > 0.5 && b[0][mask] > 0.5 && b[m - 1][mask] > 0.5) {
-      trajectory += Math.hypot(
-        a[n - 1][offset] - a[0][offset] - (b[m - 1][offset] - b[0][offset]),
-        a[n - 1][offset + 1] - a[0][offset + 1] - (b[m - 1][offset + 1] - b[0][offset + 1]),
-      );
-      visibleHands++;
+    const movementA = robustMotion(a, mask, offset);
+    const movementB = robustMotion(b, mask, offset);
+    const lengthA = Math.hypot(...movementA);
+    const lengthB = Math.hypot(...movementB);
+    if (
+      lengthA > 0.35 &&
+      lengthB > 0.35 &&
+      (movementA[0] * movementB[0] + movementA[1] * movementB[1]) / (lengthA * lengthB) < -0.65
+    ) {
+      opposing = true;
     }
   }
-  return previous[m] / Math.max(n, m) + (visibleHands ? (0.15 * trajectory) / visibleHands : 0);
+  return previous[m] / Math.max(n, m) + (opposing ? SITE_CONFIG.recognition.max_distance : 0);
+}
+function robustMotion(sequence, mask, offset) {
+  const edge = Math.min(5, Math.floor(sequence.length / 3));
+  const first = sequence.slice(0, edge).filter((frame) => frame[mask] > 0.5);
+  const last = sequence.slice(-edge).filter((frame) => frame[mask] > 0.5);
+  if (first.length < 3 || last.length < 3) {
+    return [0, 0];
+  }
+  const median = (frames, coordinate) => {
+    const values = frames.map((frame) => frame[coordinate]).sort((a, b) => a - b);
+    const middle = Math.floor(values.length / 2);
+    return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+  };
+  return [
+    median(last, offset) - median(first, offset),
+    median(last, offset + 1) - median(first, offset + 1),
+  ];
 }
 function motion(sequence) {
   const first = sequence.find((frame) => frame[0] > 0.5 || frame[HAND] > 0.5);
@@ -296,18 +312,19 @@ function predict(
       ? (sequence.length - 1) / quality.duration_s
       : 8;
   const windows = new Map();
+  const temporalSearch = live && SITE_CONFIG.recognition.temporal_search === true;
   const ranked = dataset
     .flatMap((item) => {
       const sizes = live
         ? [
             ...new Set(
-              [0.75, 1, 1.25].map((speed) =>
+              (temporalSearch ? [0.75, 1, 1.25] : [1]).map((speed) =>
                 Math.max(8, Math.round((item.duration_s || 2.5) * fps * speed)),
               ),
             ),
           ]
         : [sequence.length];
-      const ends = live ? [0, Math.max(1, Math.round(fps * 0.3))] : [0];
+      const ends = temporalSearch ? [0, Math.max(1, Math.round(fps * 0.3))] : [0];
       let bestWindow = null;
       const reference = item.sequence.length === 32 ? item.sequence : resample(item.sequence);
       for (const size of sizes) {
