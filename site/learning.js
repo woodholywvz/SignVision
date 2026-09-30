@@ -104,6 +104,7 @@
       content.append(element('p', 'muted', t('accountSignInHint')));
       const link = element('a', 'button primary', t('signInChatGPT'));
       link.href = '/signin-with-chatgpt?return_to=%2F%3Ftab%3Daccount';
+      link.onclick = () => window.SignVisionSounds?.markLogin();
       content.append(link);
     } else if (!me.registered) {
       content.append(element('p', 'muted', t('registerHint')));
@@ -485,6 +486,7 @@
   }
   function render() {
     renderTheme();
+    window.SignVisionSounds?.render();
     renderAccount();
     renderLessons();
     renderHomeLessons();
@@ -569,6 +571,7 @@
         state.me = await getJson('/api/me');
         render();
         setFeedback(t('profileCreated'));
+        window.SignVisionSounds?.play('register');
         refreshAccountContent();
       } catch (error) {
         setFeedback(error.message, true);
@@ -595,6 +598,7 @@
         state.me = await getJson('/api/me');
         render();
         setFeedback(t(emailMode === 'register' ? 'emailRegistered' : 'emailLoggedIn'));
+        window.SignVisionSounds?.play(emailMode === 'register' ? 'register' : 'login');
         refreshAccountContent();
       } catch (error) {
         setFeedback(error.message, true);
@@ -684,6 +688,7 @@
     }
     state.me = await getJson('/api/me');
     render();
+    window.SignVisionSounds?.completeLogin(state.me.authenticated);
     if (requestedPanel === 'admin' && isAdmin()) {
       setPanel('admin', true);
     }
@@ -716,6 +721,9 @@
       }
     },
     async onPracticeResult(data) {
+      if (data.completed) {
+        window.SignVisionSounds?.play('lesson');
+      }
       try {
         await refreshLessons();
       } catch (error) {

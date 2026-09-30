@@ -825,6 +825,7 @@ $('evalButton').addEventListener('click', async () => {
   renderEvaluation();
 });
 applyLocale();
+window.SignVisionSounds?.init(t);
 renderControls();
 refresh().catch((error) => setFeedback(error.message, true));
 window.SignVisionLearning.init().catch((error) => setFeedback(error.message, true));

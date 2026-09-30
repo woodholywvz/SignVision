@@ -35,6 +35,7 @@ const sources = [
   ['/static/ui-refresh.css', 'static/ui-refresh.css', 'text/css; charset=utf-8'],
   ['/static/i18n.js', 'site/i18n.js', 'text/javascript; charset=utf-8'],
   ['/static/tracking.js', 'site/tracking.js', 'text/javascript; charset=utf-8'],
+  ['/static/sounds.js', 'site/sounds.js', 'text/javascript; charset=utf-8'],
   ['/static/learning.js', 'site/learning.js', 'text/javascript; charset=utf-8'],
   ['/static/app.js', 'site/app.js', 'text/javascript; charset=utf-8'],
 ];
@@ -52,7 +53,7 @@ const assets = Object.fromEntries(
     let body = readFileSync(file, 'utf8');
     if (url === '/index.html') {
       body = body.replace(
-        /\/static\/(style\.css|ui-refresh\.css|i18n\.js|tracking\.js|learning\.js|app\.js)/g,
+        /\/static\/(style\.css|ui-refresh\.css|i18n\.js|tracking\.js|sounds\.js|learning\.js|app\.js)/g,
         `/static/$1?v=${revision}`,
       );
     }

@@ -23,6 +23,7 @@ test('the account form opens before slow lesson and admin requests finish', asyn
       return elements.get(id);
     },
     state: {},
+    window: {},
     location: { search: '?tab=account' },
     URLSearchParams,
     render: () => events.push('render'),
@@ -39,6 +40,67 @@ test('the account form opens before slow lesson and admin requests finish', asyn
   resolveMe({ authenticated: false });
   await pending;
   assert.deepEqual(events, ['render', 'account', 'render', 'background']);
+});
+
+test('sound waits for user interaction and respects the saved mute preference', async () => {
+  const storage = new Map();
+  const listeners = new Map();
+  let notes = 0;
+  const button = { setAttribute() {} };
+  class AudioContext {
+    state = 'suspended';
+    currentTime = 0;
+    destination = {};
+    async resume() {
+      this.state = 'running';
+    }
+    createGain() {
+      return {
+        gain: {
+          setValueAtTime() {},
+          linearRampToValueAtTime() {},
+          exponentialRampToValueAtTime() {},
+        },
+        connect() {},
+        disconnect() {},
+      };
+    }
+    createOscillator() {
+      return {
+        frequency: {},
+        connect() {},
+        disconnect() {},
+        start() {
+          notes++;
+        },
+        stop() {},
+      };
+    }
+  }
+  const window = { AudioContext };
+  const localStorage = {
+    getItem: (key) => storage.get(key),
+    setItem: (key, value) => storage.set(key, value),
+  };
+  vm.runInNewContext(fs.readFileSync('site/sounds.js', 'utf8'), {
+    window,
+    localStorage,
+    document: {
+      getElementById: () => button,
+      addEventListener: (name, handler) => listeners.set(name, handler),
+    },
+  });
+  window.SignVisionSounds.init((key) => key);
+  window.SignVisionSounds.play('lesson');
+  assert.equal(notes, 0);
+  await listeners.get('pointerdown')();
+  assert.ok(notes > 0);
+  button.onclick();
+  const count = notes;
+  window.SignVisionSounds.play('login');
+  assert.equal(notes, count);
+  assert.equal(storage.get('signvision.sound'), 'off');
+  assert.equal(button.title, 'enableSounds');
 });
 
 test('the result card shows advice for recorded, unknown, and waiting predictions', () => {
