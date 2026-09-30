@@ -87,18 +87,20 @@ async function practiceLesson(request, env, phraseId, data) {
     throw new ApiError('Материалы урока ещё не опубликованы.', 409);
   }
   const sequence = trimSequence(data.sequence);
-  if (!validSequence(sequence)) {
-    throw new ApiError('Недостаточно кадров с руками.', 422);
+  if (!validSequence(data.sequence, 0)) {
+    throw new ApiError('Недостаточно кадров или неверный формат записи.', 422);
   }
   const catalog = await phraseCatalog(env.DB);
-  const prediction = predict(
-    sequence,
-    await samples(env.BUCKET, catalog),
-    language(request),
-    false,
-    {},
-    catalog,
-  );
+  const prediction = validSequence(sequence)
+    ? predict(
+        sequence,
+        await samples(env.BUCKET, catalog),
+        language(request),
+        false,
+        { ...data.quality, duration_s: data.duration_s },
+        catalog,
+      )
+    : missingHandsPrediction(sequence.length);
   const completed = prediction.phrase_id === phraseId;
   const now = Date.now();
   if (completed) {

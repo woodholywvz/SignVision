@@ -298,7 +298,11 @@ window.LiveTracking = class {
                 ? points.filter((p) => p.x < 0.08 || p.x > 0.92 || p.y < 0.08 || p.y > 0.92)
                     .length / points.length
                 : 0;
-              quality = { brightness: sum / (pixels.length / 4), edge_ratio: edge };
+              quality = {
+                brightness: sum / (pixels.length / 4),
+                edge_ratio: edge,
+                pose_coverage: detection.pose ? 1 : 0,
+              };
             }
             this.onFrame(features(detection), now, quality);
           }
@@ -364,6 +368,9 @@ window.GestureEngine = {
     return Object.keys(result.hands).length;
   },
   async extract(blob) {
+    return (await this.analyze(blob)).sequence;
+  },
+  async analyze(blob) {
     window.SignVisionModels = await models();
     const url = URL.createObjectURL(blob),
       video = document.createElement('video');
@@ -403,6 +410,15 @@ window.GestureEngine = {
       capture.width = Math.min(LIVE_WIDTH, video.videoWidth);
       capture.height = Math.round((capture.width * video.videoHeight) / video.videoWidth);
       const context = capture.getContext('2d', { alpha: false });
+      const qualityCanvas = document.createElement('canvas');
+      qualityCanvas.width = 16;
+      qualityCanvas.height = 12;
+      const qualityContext = qualityCanvas.getContext('2d', { willReadFrequently: true });
+      let brightness = 0,
+        qualityFrames = 0,
+        edgePoints = 0,
+        totalPoints = 0,
+        poseFrames = 0;
       let lastPose = null,
         poseMisses = 0;
       for (let i = 0; i < count; i++) {
@@ -424,12 +440,36 @@ window.GestureEngine = {
           }
         }
         detection.pose = lastPose;
+        poseFrames += detection.pose ? 1 : 0;
+        const points = Object.values(detection.hands).flat();
+        totalPoints += points.length;
+        edgePoints += points.filter(
+          (p) => p.x < 0.08 || p.x > 0.92 || p.y < 0.08 || p.y > 0.92,
+        ).length;
+        if (i % 8 === 0 && qualityContext.getImageData) {
+          qualityContext.drawImage(capture, 0, 0, 16, 12);
+          const pixels = qualityContext.getImageData(0, 0, 16, 12).data;
+          let sum = 0;
+          for (let p = 0; p < pixels.length; p += 4) {
+            sum += (pixels[p] + pixels[p + 1] + pixels[p + 2]) / 3;
+          }
+          brightness += sum / (pixels.length / 4);
+          qualityFrames++;
+        }
         sequence.push(features(detection));
         if (i % 6 === 0) {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
-      return sequence;
+      return {
+        sequence,
+        duration_s: count / CLIP_FPS,
+        quality: {
+          brightness: qualityFrames ? brightness / qualityFrames : undefined,
+          edge_ratio: totalPoints ? edgePoints / totalPoints : 0,
+          pose_coverage: poseFrames / count,
+        },
+      };
     } finally {
       video.removeAttribute('src');
       video.load();

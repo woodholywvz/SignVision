@@ -3,6 +3,39 @@ const test = require('node:test');
 const vm = require('node:vm');
 const fs = require('node:fs');
 
+test('the result card shows advice for recorded, unknown, and waiting predictions', () => {
+  const source = fs.readFileSync('site/app.js', 'utf8');
+  const render = source.slice(
+    source.indexOf('function renderResult()'),
+    source.indexOf('function renderEvaluation()'),
+  );
+  const elements = new Map();
+  const context = vm.createContext({
+    $: (id) => {
+      if (!elements.has(id)) {
+        elements.set(id, { classList: { toggle() {} } });
+      }
+      return elements.get(id);
+    },
+    phrases: [],
+    counts: {},
+    live: false,
+    window: {},
+    t: (key) => key,
+    phraseName: (id) => id,
+    resultState: {},
+  });
+  vm.runInContext(render, context);
+  for (const phase of ['unknown', 'tentative', 'listening']) {
+    context.resultState = {
+      phase,
+      prediction: { candidate_id: 'privet', advice_code: 'lighting' },
+    };
+    vm.runInContext('renderResult()', context);
+    assert.equal(elements.get('resultDetail').textContent, 'advice_lighting');
+  }
+});
+
 test('live tracking uses new video frames, small input, and fewer pose passes', async () => {
   const callbacks = new Map();
   let nextHandle = 0,
@@ -121,18 +154,20 @@ test('clip extraction samples a long recording without processing every source f
   };
   vm.runInNewContext(fs.readFileSync('site/tracking.js', 'utf8'), {
     window,
-    document: { createElement: (tag) => (tag === 'video' ? video : capture) },
+    document: { createElement: (tag) => (tag === 'video' ? video : { ...capture }) },
     URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
     performance: { now: () => handCalls * 100 },
     setTimeout,
     clearTimeout,
     console,
   });
-  const sequence = await window.GestureEngine.extract({});
+  const analysis = await window.GestureEngine.analyze({});
+  const sequence = analysis.sequence;
   assert.equal(sequence.length, 64);
   assert.equal(handCalls, 64);
   assert.equal(poseCalls, 32);
-  assert.equal(capture.width, 512);
+  assert.equal(analysis.duration_s, 8);
+  assert.equal(analysis.quality.pose_coverage, 1);
   assert.equal(sequence[0][0], 1);
   video.duration = 9;
   await assert.rejects(window.GestureEngine.extract({}), /videoTooLong/);

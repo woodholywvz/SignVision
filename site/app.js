@@ -174,9 +174,16 @@ function renderResult() {
     );
   } else if (phase === 'listening') {
     $('resultText').textContent = t('liveListening');
-    $('resultDetail').textContent = t('liveListeningHint');
+    $('resultDetail').textContent = prediction?.advice_code
+      ? t('advice_' + prediction.advice_code)
+      : t('liveListeningHint');
   } else if (phase === 'tentative') {
-    $('resultText').textContent = t('maybePhrase', { phrase: phraseName(prediction.candidate_id) });
+    $('resultText').textContent = prediction.alternative_id
+      ? t('maybePhrases', {
+          first: phraseName(prediction.candidate_id),
+          second: phraseName(prediction.alternative_id),
+        })
+      : t('maybePhrase', { phrase: phraseName(prediction.candidate_id) });
     $('resultDetail').textContent = t('advice_' + prediction.advice_code);
   } else if (phase === 'processing') {
     $('resultText').textContent = t('analyzing');
@@ -186,6 +193,10 @@ function renderResult() {
     $('resultDetail').textContent = error;
   } else if (prediction) {
     $('resultText').textContent = phraseName(prediction.phrase_id || 'unknown');
+    if (prediction.advice_code) {
+      $('resultDetail').textContent = t('advice_' + prediction.advice_code);
+      return;
+    }
     if (live) {
       $('resultDetail').textContent =
         phase === 'unknown' ? t('liveUnknownHint') : t('liveRecognizedHint');
@@ -657,13 +668,19 @@ $('recordButton').addEventListener('click', () => {
     resultState = { phase: 'processing' };
     renderResult();
     try {
-      const sequence = await window.GestureEngine.extract(clip);
+      const analysis = await window.GestureEngine.analyze(clip);
       const practicePhrase = window.SignVisionLearning?.practicePhrase;
       const practice = practicePhrase
-        ? await api(`/api/lessons/${practicePhrase}/practice`, { sequence })
+        ? await api(`/api/lessons/${practicePhrase}/practice`, analysis)
         : null;
-      const prediction = practice?.prediction || (await api('/api/recognize', { sequence }));
-      resultState = { phase: prediction.phrase_id ? 'recognized' : 'unknown', prediction };
+      const prediction = practice?.prediction || (await api('/api/recognize', analysis));
+      resultState = {
+        phase:
+          prediction.state === 'empty_dataset'
+            ? 'empty'
+            : prediction.state || (prediction.phrase_id ? 'recognized' : 'unknown'),
+        prediction,
+      };
       renderResult();
       if (practice) {
         await window.SignVisionLearning.onPracticeResult(practice);

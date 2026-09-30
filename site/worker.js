@@ -36,6 +36,17 @@ function trimSequence(value) {
   }
   return value.slice(first, last + 1);
 }
+function missingHandsPrediction(frames) {
+  return {
+    state: 'unknown',
+    phrase_id: null,
+    candidate_id: null,
+    advice_code: 'hands_visible',
+    reason_code: 'insufficient_hands',
+    frames,
+    distance: null,
+  };
+}
 
 async function samples(bucket, catalog) {
   const ids = phraseIds(catalog);
@@ -104,10 +115,14 @@ function resample(frames, target = 32) {
 }
 function averageDiff(a, b, start, length) {
   let sum = 0;
+  let weight = 0;
   for (let k = 0; k < length; k++) {
-    sum += Math.abs(a[start + k] - b[start + k]);
+    // MediaPipe depth is noisier than the image plane, especially for fingers.
+    const coordinateWeight = k % 3 === 2 ? 0.2 : 1;
+    sum += coordinateWeight * Math.abs(a[start + k] - b[start + k]);
+    weight += coordinateWeight;
   }
-  return sum / length;
+  return sum / weight;
 }
 function frameDistance(a, b) {
   let sum = 0,
@@ -154,7 +169,23 @@ function distance(a, b) {
     }
     previous = current;
   }
-  return previous[m] / Math.max(n, m);
+  // DTW can align a partial/reversed movement to repeated poses. Keep the
+  // complete displacement of each visible wrist as additional evidence.
+  let trajectory = 0;
+  let visibleHands = 0;
+  for (const [mask, offset] of [
+    [0, FEATURES - 6],
+    [HAND, FEATURES - 3],
+  ]) {
+    if (a[0][mask] > 0.5 && a[n - 1][mask] > 0.5 && b[0][mask] > 0.5 && b[m - 1][mask] > 0.5) {
+      trajectory += Math.hypot(
+        a[n - 1][offset] - a[0][offset] - (b[m - 1][offset] - b[0][offset]),
+        a[n - 1][offset + 1] - a[0][offset + 1] - (b[m - 1][offset + 1] - b[0][offset + 1]),
+      );
+      visibleHands++;
+    }
+  }
+  return previous[m] / Math.max(n, m) + (visibleHands ? (0.15 * trajectory) / visibleHands : 0);
 }
 function motion(sequence) {
   const first = sequence.find((frame) => frame[0] > 0.5 || frame[HAND] > 0.5);
@@ -196,6 +227,12 @@ function advice(query, reference, quality = {}) {
   }
   if (Number.isFinite(quality.edge_ratio) && quality.edge_ratio > 0.3) {
     return 'step_back';
+  }
+  if (Number.isFinite(quality.pose_coverage) && quality.pose_coverage < 0.5) {
+    return 'body_visible';
+  }
+  if (!reference) {
+    return 'repeat';
   }
   const q = motion(query),
     r = motion(reference.sequence);
@@ -251,28 +288,39 @@ function predict(
   const windows = new Map();
   const ranked = dataset
     .flatMap((item) => {
-      const windowSize = live
-        ? Math.max(8, Math.round((item.duration_s || 2.5) * fps))
-        : sequence.length;
-      if (windowSize > sequence.length) {
-        return [];
+      const sizes = live
+        ? [
+            ...new Set(
+              [0.75, 1, 1.25].map((speed) =>
+                Math.max(8, Math.round((item.duration_s || 2.5) * fps * speed)),
+              ),
+            ),
+          ]
+        : [sequence.length];
+      const ends = live ? [0, Math.max(1, Math.round(fps * 0.3))] : [0];
+      let bestWindow = null;
+      const reference = item.sequence.length === 32 ? item.sequence : resample(item.sequence);
+      for (const size of sizes) {
+        for (const end of ends) {
+          if (size + end > sequence.length) {
+            continue;
+          }
+          const key = `${size}:${end}`;
+          if (!windows.has(key)) {
+            const raw = sequence.slice(sequence.length - size - end, sequence.length - end);
+            windows.set(key, { raw, normalized: handRatio(raw) >= 0.35 ? resample(raw) : null });
+          }
+          const window = windows.get(key);
+          if (!window.normalized) {
+            continue;
+          }
+          const value = distance(live ? window.normalized : query, reference);
+          if (!bestWindow || value < bestWindow.value) {
+            bestWindow = { label: item.phrase_id, value, reference: item, window: window.raw };
+          }
+        }
       }
-      if (!windows.has(windowSize)) {
-        const raw = sequence.slice(-windowSize);
-        windows.set(windowSize, { raw, normalized: handRatio(raw) >= 0.35 ? resample(raw) : null });
-      }
-      const window = windows.get(windowSize);
-      if (!window.normalized) {
-        return [];
-      }
-      return [
-        {
-          label: item.phrase_id,
-          value: distance(live ? window.normalized : query, resample(item.sequence)),
-          reference: item,
-          window: window.raw,
-        },
-      ];
+      return bestWindow ? [bestWindow] : [];
     })
     .sort((a, b) => a.value - b.value);
   if (!ranked.length) {
@@ -305,34 +353,35 @@ function predict(
   const winner = classes[0].label,
     best = classes[0].score;
   const margin = classes.length > 1 ? classes[1].score - best : null;
+  // An absolute margin alone rejects even an exact match if a similar phrase exists.
+  // Require both a small absolute gap and a small relative gap to call it ambiguous.
+  const relativeMargin = margin === null ? 1 : margin / Math.max(best + margin, 0.001);
   const reason_code =
     best > SITE_CONFIG.recognition.max_distance
       ? 'too_far'
-      : margin !== null && margin < SITE_CONFIG.recognition.min_margin
+      : margin !== null &&
+          margin < SITE_CONFIG.recognition.min_margin &&
+          (best > 0.03 || relativeMargin < 0.2)
         ? 'ambiguous'
         : 'recognized';
   const phrase_id = reason_code === 'recognized' ? winner : null;
-  if (live) {
-    const plausible = best <= SITE_CONFIG.recognition.tentative_distance;
-    const state = reason_code === 'recognized' ? 'recognized' : plausible ? 'tentative' : 'unknown';
-    const candidate_id = state === 'tentative' ? winner : null;
-    const reference = classes[0].reference;
-    const selectedWindow = classes[0].window;
-    const selectedQuality = { ...quality, duration_s: (selectedWindow.length - 1) / fps };
-    return {
-      state,
-      phrase_id,
-      candidate_id,
-      advice_code: candidate_id ? advice(selectedWindow, reference, selectedQuality) : null,
-      distance: best,
-      margin,
-      reason_code,
-      frames: sequence.length,
-    };
-  }
+  const plausible = best <= SITE_CONFIG.recognition.tentative_distance;
+  const state = reason_code === 'recognized' ? 'recognized' : plausible ? 'tentative' : 'unknown';
+  const candidate_id = state === 'tentative' ? winner : null;
+  const selectedWindow = classes[0].window;
+  const selectedQuality = live
+    ? { ...quality, duration_s: (selectedWindow.length - 1) / fps }
+    : quality;
   const phrase = catalog.find((item) => item.id === phrase_id);
   return {
+    state,
     phrase_id,
+    candidate_id,
+    alternative_id: reason_code === 'ambiguous' ? classes[1]?.label || null : null,
+    advice_code:
+      state === 'recognized'
+        ? null
+        : advice(selectedWindow, candidate_id ? classes[0].reference : null, selectedQuality),
     text: phrase ? (ru ? phrase.text : phrase.en) : ru ? 'Неизвестный жест' : 'Unknown gesture',
     distance: best,
     margin,
@@ -604,13 +653,23 @@ export default {
         return json({ sample_id: id, frames: trimmed.length, counts: counts(existing, catalog) });
       }
       if (path === '/api/recognize') {
+        if (!validSequence(data.sequence, 0)) {
+          return error('Недостаточно кадров или неверный формат записи', 422);
+        }
         const sequence = trimSequence(data.sequence);
         if (!validSequence(sequence)) {
-          return error('Недостаточно кадров или рук в кадре', 422);
+          return json(missingHandsPrediction(sequence.length));
         }
         const catalog = await phraseCatalog(env.DB);
         return json(
-          predict(sequence, await samples(env.BUCKET, catalog), lang, false, {}, catalog),
+          predict(
+            sequence,
+            await samples(env.BUCKET, catalog),
+            lang,
+            false,
+            { ...data.quality, duration_s: data.duration_s },
+            catalog,
+          ),
         );
       }
       if (path === '/api/live') {
@@ -618,7 +677,12 @@ export default {
           !validSequence(data.sequence, 0) ||
           handRatio(data.sequence) * data.sequence.length < 8
         ) {
-          return json({ state: 'waiting', phrase_id: null, candidate_id: null });
+          return json({
+            state: 'waiting',
+            phrase_id: null,
+            candidate_id: null,
+            advice_code: 'hands_visible',
+          });
         }
         const catalog = await phraseCatalog(env.DB);
         return json(

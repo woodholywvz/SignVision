@@ -56,7 +56,107 @@ test('live translation separates matches, suggestions and distant gestures', asy
   const distant = await live(shifted(2));
   assert.equal(distant.state, 'unknown');
   assert.equal(distant.candidate_id, null);
+  assert.equal(distant.advice_code, 'repeat');
   assert.equal((await live(sequence.map(() => Array(284).fill(0)))).state, 'waiting');
+});
+
+test('recorded uncertain gestures and missing hands receive actionable feedback', async () => {
+  const env = environment();
+  await worker.fetch(request('/api/samples', { phrase_id: 'privet', sequence }), env);
+  const uncertain = sequence.map((frame) => {
+    const row = [...frame];
+    row.fill(0.9, 1, 64);
+    return row;
+  });
+  for (const [quality, expected] of [
+    [{ brightness: 30 }, 'lighting'],
+    [{ edge_ratio: 0.6 }, 'step_back'],
+    [{ pose_coverage: 0 }, 'body_visible'],
+  ]) {
+    const result = await (
+      await worker.fetch(request('/api/recognize', { sequence: uncertain, quality }), env)
+    ).json();
+    assert.equal(result.state, 'tentative');
+    assert.equal(result.candidate_id, 'privet');
+    assert.equal(result.advice_code, expected);
+  }
+  const absent = sequence.map(() => Array(284).fill(0));
+  for (const path of ['/api/recognize', '/api/live']) {
+    const result = await (await worker.fetch(request(path, { sequence: absent }), env)).json();
+    assert.equal(result.phrase_id, null);
+    assert.equal(result.advice_code, 'hands_visible');
+  }
+});
+
+test('overlapping hello and goodbye references are ambiguous rather than a confident word', async () => {
+  const env = environment();
+  for (const phrase_id of ['privet', 'do_svidaniya']) {
+    await worker.fetch(request('/api/samples', { phrase_id, sequence }), env);
+  }
+  for (const path of ['/api/recognize', '/api/live']) {
+    const result = await (
+      await worker.fetch(request(path, { sequence, duration_s: 2 }), env)
+    ).json();
+    assert.equal(result.state, 'tentative');
+    assert.equal(result.reason_code, 'ambiguous');
+    assert.equal(result.phrase_id, null);
+    assert.equal(result.advice_code, 'hand_shape');
+  }
+});
+
+test('an exact match is accepted even when a nearby class is inside the absolute margin', async () => {
+  const env = environment();
+  const nearby = sequence.map((frame) => {
+    const row = [...frame];
+    row.fill(0.08, 1, 64);
+    return row;
+  });
+  await worker.fetch(request('/api/samples', { phrase_id: 'privet', sequence }), env);
+  await worker.fetch(request('/api/samples', { phrase_id: 'do_svidaniya', sequence: nearby }), env);
+  const result = await (await worker.fetch(request('/api/recognize', { sequence }), env)).json();
+  assert.equal(result.phrase_id, 'privet');
+  assert.ok(result.margin < 0.05);
+});
+
+test('live matching tolerates tempo changes and a trailing pause without accepting reversed motion', async () => {
+  const env = environment();
+  const gesture = (length, reverse = false, depthNoise = 0) =>
+    Array.from({ length }, (_, i) => {
+      const row = Array(284).fill(0);
+      const position = reverse ? 1 - i / (length - 1) : i / (length - 1);
+      row[0] = 1;
+      for (let j = 1; j <= 63; j += 3) {
+        row[j] = position;
+        row[j + 1] = 0.2;
+        row[j + 2] = depthNoise * Math.sin(i);
+      }
+      row[278] = position;
+      return row;
+    });
+  await worker.fetch(
+    request('/api/samples', { phrase_id: 'privet', sequence: gesture(24), duration_s: 3 }),
+    env,
+  );
+  for (const length of [18, 30]) {
+    const performed = gesture(length, false, 0.4);
+    const frames = [
+      ...Array.from({ length: 12 }, () => Array(284).fill(0)),
+      ...performed,
+      performed.at(-1),
+      performed.at(-1),
+    ];
+    const result = await (
+      await worker.fetch(
+        request('/api/live', { sequence: frames, duration_s: (frames.length - 1) / 8 }),
+        env,
+      )
+    ).json();
+    assert.equal(result.phrase_id, 'privet');
+  }
+  const reversed = await (
+    await worker.fetch(request('/api/recognize', { sequence: gesture(24, true) }), env)
+  ).json();
+  assert.equal(reversed.phrase_id, null);
 });
 
 test('extra examples of another phrase cannot outvote an exact reference', async () => {

@@ -131,6 +131,11 @@ window.SIGNVISION_I18N = {
     advice_slower: 'Для улучшения попробуйте выполнить жест медленнее.',
     advice_faster: 'Для улучшения попробуйте выполнить жест быстрее.',
     advice_hand_shape: 'Для улучшения повторите положение кисти и пальцев как в эталоне.',
+    advice_repeat:
+      'Жест не похож на доступные эталоны. Выберите фразу в словаре, посмотрите пример и повторите жест целиком.',
+    maybePhrases: 'Похоже на «{first}» или «{second}»',
+    advice_body_visible:
+      'Расположите камеру так, чтобы были видны плечи и обе кисти: это поможет определить положение рук относительно тела.',
     camera: 'Камера',
     cameraOff: 'Отключена',
     cameraOn: 'Включена',
@@ -419,6 +424,11 @@ window.SIGNVISION_I18N = {
     advice_slower: 'Try making the gesture more slowly.',
     advice_faster: 'Try making the gesture faster.',
     advice_hand_shape: 'Match the hand and finger shape in the reference.',
+    advice_repeat:
+      'This gesture does not match the available references. Choose a phrase in the dictionary, watch its example and repeat the complete gesture.',
+    maybePhrases: 'Looks like “{first}” or “{second}”',
+    advice_body_visible:
+      'Frame your shoulders and both hands so their position relative to your body can be measured.',
     camera: 'Camera',
     cameraOff: 'Off',
     cameraOn: 'On',
