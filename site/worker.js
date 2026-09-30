@@ -731,35 +731,62 @@ export default {
           ids = phraseIds(catalog);
         const dataset = await samples(env.BUCKET, catalog),
           results = [];
+        if (!dataset.length) {
+          return error(
+            lang === 'en'
+              ? 'Add reference gestures before evaluating.'
+              : 'Перед проверкой добавьте эталонные жесты.',
+            409,
+          );
+        }
         for (const item of data.items) {
-          if (!ids.has(item.expected) && item.expected !== 'unknown') {
+          if (!item || (!ids.has(item.expected) && item.expected !== 'unknown')) {
             return error('Неизвестная метка');
           }
-          const sequence = trimSequence(item.sequence);
-          if (!validSequence(sequence)) {
+          const valid = validSequence(item.sequence, 0);
+          const sequence = valid ? trimSequence(item.sequence) : [];
+          if (!valid || !validSequence(sequence)) {
+            const error_code = valid ? 'insufficient_hands' : 'invalid_sequence';
             results.push({
               file: item.file,
               expected: item.expected,
               predicted: null,
-              correct: false,
-              error: 'Недостаточно кадров или рук в кадре',
+              status: 'error',
+              correct: null,
+              error_code,
+              error:
+                lang === 'en'
+                  ? 'Not enough valid frames with visible hands.'
+                  : 'Недостаточно корректных кадров с видимыми руками.',
             });
             continue;
           }
-          const predicted =
-            predict(sequence, dataset, lang, false, {}, catalog).phrase_id || 'unknown';
+          const prediction = predict(
+            sequence,
+            dataset,
+            lang,
+            false,
+            { ...item.quality, duration_s: item.duration_s },
+            catalog,
+          );
+          const predicted = prediction.phrase_id || 'unknown';
           results.push({
+            ...prediction,
             file: item.file,
             expected: item.expected,
             predicted,
+            status: 'evaluated',
             correct: predicted === item.expected,
           });
         }
+        const evaluated = results.filter((row) => row.status === 'evaluated');
         const correct = results.filter((row) => row.correct).length;
         return json({
           total: results.length,
+          evaluated: evaluated.length,
+          failed: results.length - evaluated.length,
           correct,
-          accuracy: correct / results.length,
+          accuracy: evaluated.length ? correct / evaluated.length : null,
           results,
         });
       }

@@ -25,6 +25,7 @@ let stream,
 let resultState = { phase: 'waiting' },
   feedback = '',
   evalState = { phase: 'idle' };
+let evaluationController = null;
 let busy = false,
   cameraStarting = false,
   cameraRequest = 0;
@@ -52,7 +53,17 @@ const tracker = new window.LiveTracking($('preview'), $('landmarkOverlay'), (sta
 });
 const t = (key, values = {}) =>
   (translations[locale][key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
-const errorText = (error) => (error.message === 'videoTooLong' ? t('videoTooLong') : error.message);
+const errorText = (error) =>
+  [
+    'videoTooLong',
+    'videoReadTimeout',
+    'videoUnreadable',
+    'videoDurationUnreadable',
+    'evaluationCancelled',
+    'evaluationRequestTimeout',
+  ].includes(error.message)
+    ? t(error.message)
+    : error.message;
 function countText(number, kind) {
   const category = new Intl.PluralRules(locale).select(number);
   const ending = category === 'one' ? 'One' : category === 'few' ? 'Few' : 'Many';
@@ -89,6 +100,10 @@ function options(select, includeUnknown = false, selected) {
     }),
   );
   if (includeUnknown) {
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = t('evalSelectLabel');
+    select.prepend(placeholder);
     const option = document.createElement('option');
     option.value = 'unknown';
     option.textContent = t('unknown');
@@ -96,6 +111,8 @@ function options(select, includeUnknown = false, selected) {
   }
   if (selected && Array.from(select.options).some((option) => option.value === selected)) {
     select.value = selected;
+  } else if (includeUnknown) {
+    select.value = '';
   }
 }
 function renderCatalog() {
@@ -229,28 +246,45 @@ function renderEvaluation() {
   const container = $('evalResult');
   container.replaceChildren();
   if (evalState.phase === 'loading') {
-    container.textContent = t('evaluating');
-    return;
+    const progress = document.createElement('p');
+    progress.textContent = t('evaluationProgress', {
+      done: evalState.completed,
+      total: evalState.total,
+      file: evalState.file || '',
+    });
+    container.append(progress);
   }
   if (evalState.phase === 'error') {
     container.textContent = evalState.error;
     return;
   }
-  if (evalState.phase !== 'done') {
+  if (!evalState.data) {
     return;
   }
   const data = evalState.data;
   const summary = document.createElement('span');
   summary.className = 'eval-summary';
-  summary.textContent = t('accuracy', {
-    correct: data.correct,
+  summary.textContent = data.evaluated
+    ? t('accuracy', {
+        correct: data.correct,
+        total: data.evaluated,
+        percent: Math.round(data.accuracy * 100),
+      })
+    : t('evaluationNoValid');
+  const coverage = document.createElement('p');
+  coverage.textContent = t('evaluationCoverage', {
+    evaluated: data.evaluated,
     total: data.total,
-    percent: Math.round(data.accuracy * 100),
+    failed: data.failed,
   });
+  const explanation = document.createElement('p');
+  explanation.textContent = t(
+    evalState.phase === 'cancelled' ? 'evaluationCancelled' : 'evaluationScoring',
+  );
   const table = document.createElement('table');
   const head = document.createElement('thead');
   const headerRow = document.createElement('tr');
-  ['file', 'expected', 'predicted', 'outcome'].forEach((key) => {
+  ['file', 'expected', 'predicted', 'outcome', 'evaluationDetails'].forEach((key) => {
     const th = document.createElement('th');
     th.textContent = t(key);
     headerRow.append(th);
@@ -263,8 +297,23 @@ function renderEvaluation() {
     [
       row.file,
       phraseName(row.expected),
-      row.predicted ? phraseName(row.predicted) : row.error,
-      row.correct ? '✓' : '✕',
+      row.predicted ? phraseName(row.predicted) : t('evaluationProcessingError'),
+      row.status === 'error' ? '—' : row.correct ? '✓' : '✕',
+      row.status === 'error'
+        ? row.error
+        : [
+            row.alternative_id
+              ? t('maybePhrases', {
+                  first: phraseName(row.candidate_id),
+                  second: phraseName(row.alternative_id),
+                })
+              : row.candidate_id
+                ? t('maybePhrase', { phrase: phraseName(row.candidate_id) })
+                : '',
+            row.advice_code ? t('advice_' + row.advice_code) : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
     ].forEach((value) => {
       const td = document.createElement('td');
       td.textContent = value;
@@ -273,7 +322,7 @@ function renderEvaluation() {
     body.append(tr);
   });
   table.append(body);
-  container.append(summary, table);
+  container.append(summary, coverage, explanation, table);
 }
 function applyLocale() {
   document.documentElement.lang = locale;
@@ -375,10 +424,20 @@ function renderControls() {
   $('cameraOffButton').disabled = recording;
   $('saveButton').disabled = !clip || busy || !window.SignVisionLearning?.isAdmin();
   $('useRecordingButton').hidden = !clip || !window.SignVisionLearning?.isAdmin();
-  $('evalButton').disabled = busy || !$('evalFiles').files.length;
+  const evalSelects = Array.from($('evalLabels').querySelectorAll('select'));
+  $('evalButton').disabled =
+    busy ||
+    configLoading ||
+    !$('evalFiles').files.length ||
+    !evalSelects.length ||
+    evalSelects.some((select) => !select.value);
+  $('evalCancelButton').hidden = !evaluationController;
+  evalSelects.forEach((select) => {
+    select.disabled = busy;
+  });
   $('sampleFile').disabled = busy || !window.SignVisionLearning?.isAdmin();
   $('evalFiles').disabled = busy;
-  $('trackButton').disabled = cameraStarting || live;
+  $('trackButton').disabled = busy || cameraStarting || live;
   $('cameraState').textContent = t(stream ? 'cameraOn' : 'cameraOff');
   $('cameraState').classList.toggle('connected', !!stream);
   $('clipStatus').textContent = t(clip ? 'recordingAvailable' : 'noRecording');
@@ -833,6 +892,14 @@ $('sampleFile').addEventListener('change', async (event) => {
   }
 });
 $('evalFiles').addEventListener('change', (event) => {
+  if (event.target.files.length > 30) {
+    event.target.value = '';
+    $('evalLabels').replaceChildren();
+    evalState = { phase: 'error', error: t('evaluationLimit') };
+    renderEvaluation();
+    renderControls();
+    return;
+  }
   $('evalLabels').replaceChildren(
     ...Array.from(event.target.files).map((file, index) => {
       const row = document.createElement('div');
@@ -843,6 +910,7 @@ $('evalFiles').addEventListener('change', (event) => {
       select.dataset.index = index;
       select.setAttribute('aria-label', file.name);
       options(select, true);
+      select.addEventListener('change', renderControls);
       row.append(name, select);
       return row;
     }),
@@ -851,7 +919,19 @@ $('evalFiles').addEventListener('change', (event) => {
   evalState = { phase: 'idle' };
   renderEvaluation();
 });
-$('evalButton').addEventListener('click', async () => {
+function evaluationSummary(results, total) {
+  const evaluated = results.filter((row) => row.status === 'evaluated').length;
+  const correct = results.filter((row) => row.correct === true).length;
+  return {
+    results,
+    total,
+    evaluated,
+    correct,
+    failed: results.filter((row) => row.status === 'error').length,
+    accuracy: evaluated ? correct / evaluated : null,
+  };
+}
+async function runEvaluation() {
   if (busy) {
     return;
   }
@@ -861,27 +941,91 @@ $('evalButton').addEventListener('click', async () => {
     renderEvaluation();
     return;
   }
+  const labels = files.map(
+    (_, index) => $('evalLabels').querySelector(`select[data-index="${index}"]`)?.value,
+  );
+  if (labels.some((label) => !label)) {
+    evalState = { phase: 'error', error: t('evalSelectLabel') };
+    renderEvaluation();
+    return;
+  }
+  if (!Object.values(counts).some(Boolean)) {
+    evalState = { phase: 'error', error: t('evaluationNeedsReferences') };
+    renderEvaluation();
+    return;
+  }
+  stopCamera();
+  const controller = new AbortController();
+  evaluationController = controller;
   busy = true;
   renderControls();
-  evalState = { phase: 'loading' };
+  const results = [];
+  evalState = {
+    phase: 'loading',
+    completed: 0,
+    total: files.length,
+    data: evaluationSummary(results, files.length),
+  };
   renderEvaluation();
   try {
-    const items = [];
     for (const [index, file] of files.entries()) {
-      items.push({
-        file: file.name,
-        expected: $('evalLabels').querySelector(`select[data-index="${index}"]`).value,
-        sequence: await window.GestureEngine.extract(file),
-      });
+      if (controller.signal.aborted) {
+        break;
+      }
+      evalState.file = file.name;
+      renderEvaluation();
+      try {
+        const analysis = await window.GestureEngine.analyze(file, { signal: controller.signal });
+        const requestController = new AbortController();
+        const cancelRequest = () => requestController.abort(controller.signal.reason);
+        controller.signal.addEventListener('abort', cancelRequest, { once: true });
+        const timeout = setTimeout(
+          () => requestController.abort(new Error('evaluationRequestTimeout')),
+          20000,
+        );
+        try {
+          if (controller.signal.aborted) {
+            cancelRequest();
+          }
+          const data = await api(
+            '/api/evaluate',
+            { items: [{ file: file.name, expected: labels[index], ...analysis }] },
+            requestController.signal,
+          );
+          results.push(data.results[0]);
+        } finally {
+          clearTimeout(timeout);
+          controller.signal.removeEventListener('abort', cancelRequest);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          break;
+        }
+        results.push({
+          file: file.name,
+          expected: labels[index],
+          predicted: null,
+          correct: null,
+          status: 'error',
+          error: errorText(error),
+        });
+      }
+      evalState.completed = results.length;
+      evalState.data = evaluationSummary(results, files.length);
+      renderEvaluation();
     }
-    evalState = { phase: 'done', data: await api('/api/evaluate', { items }) };
-  } catch (error) {
-    evalState = { phase: 'error', error: errorText(error) };
+    evalState.phase = controller.signal.aborted ? 'cancelled' : 'done';
+  } finally {
+    evaluationController = null;
+    busy = false;
+    renderControls();
+    renderEvaluation();
   }
-  busy = false;
-  renderControls();
-  renderEvaluation();
-});
+}
+$('evalButton').addEventListener('click', runEvaluation);
+$('evalCancelButton').addEventListener('click', () =>
+  evaluationController?.abort(new Error('evaluationCancelled')),
+);
 applyLocale();
 window.SignVisionSounds?.init(t);
 renderControls();

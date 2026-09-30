@@ -112,6 +112,76 @@ test('recorded uncertain gestures and missing hands receive actionable feedback'
   }
 });
 
+test('evaluation counts accepted labels, exposes suggestions and separates processing failures', async () => {
+  const env = environment();
+  await worker.fetch(request('/api/samples', { phrase_id: 'privet', sequence }), env);
+  const shifted = (value) =>
+    sequence.map((frame) => {
+      const row = [...frame];
+      row.fill(value, 1, 64);
+      return row;
+    });
+  const items = [
+    { file: 'right.webm', expected: 'privet', sequence },
+    { file: 'wrong.webm', expected: 'spasibo', sequence },
+    { file: 'unknown.webm', expected: 'unknown', sequence: shifted(2) },
+    {
+      file: 'suggested.webm',
+      expected: 'privet',
+      sequence: shifted(0.9),
+      quality: { brightness: 30 },
+      duration_s: 2,
+    },
+    { file: 'absent.webm', expected: 'privet', sequence: sequence.map(() => Array(284).fill(0)) },
+    { file: 'broken.webm', expected: 'privet', sequence: [[1, 2]] },
+  ];
+  const evaluated = await (await worker.fetch(request('/api/evaluate', { items }), env)).json();
+  assert.equal(evaluated.total, 6);
+  assert.equal(evaluated.evaluated, 4);
+  assert.equal(evaluated.failed, 2);
+  assert.equal(evaluated.correct, 2);
+  assert.equal(evaluated.accuracy, 0.5);
+  const suggested = evaluated.results[3];
+  assert.equal(suggested.predicted, 'unknown');
+  assert.equal(suggested.correct, false);
+  assert.equal(suggested.state, 'tentative');
+  assert.equal(suggested.candidate_id, 'privet');
+  assert.equal(suggested.advice_code, 'lighting');
+  const recorded = await (await worker.fetch(request('/api/recognize', items[3]), env)).json();
+  assert.equal(suggested.distance, recorded.distance);
+  assert.equal(suggested.advice_code, recorded.advice_code);
+  for (const row of evaluated.results.slice(4)) {
+    assert.equal(row.status, 'error');
+    assert.equal(row.correct, null);
+  }
+  const config = await (await worker.fetch(request('/api/config'), env)).json();
+  assert.equal(config.counts.privet, 1);
+});
+
+test('evaluation never reports accuracy for an empty dataset or only invalid recordings', async () => {
+  const env = environment();
+  const empty = await worker.fetch(
+    request('/api/evaluate', {
+      items: [{ expected: 'unknown', sequence }],
+    }),
+    env,
+  );
+  assert.equal(empty.status, 409);
+  await worker.fetch(request('/api/samples', { phrase_id: 'privet', sequence }), env);
+  const invalid = await (
+    await worker.fetch(
+      request('/api/evaluate', {
+        items: [{ expected: 'privet', sequence: null }],
+      }),
+      env,
+    )
+  ).json();
+  assert.equal(invalid.accuracy, null);
+  assert.equal(invalid.evaluated, 0);
+  assert.equal(invalid.failed, 1);
+  assert.equal((await worker.fetch(request('/api/evaluate', { items: [null] }), env)).status, 400);
+});
+
 test('overlapping hello and goodbye references are ambiguous rather than a confident word', async () => {
   const env = environment();
   for (const phrase_id of ['privet', 'do_svidaniya']) {

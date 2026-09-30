@@ -362,6 +362,63 @@ window.LiveTracking = class {
     this.overlay.getContext('2d').clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
 };
+function abortable(promise, signal) {
+  if (!signal) {
+    return promise;
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', cancel);
+    const cancel = () => {
+      cleanup();
+      reject(signal.reason || new Error('evaluationCancelled'));
+    };
+    if (signal.aborted) {
+      cancel();
+    } else {
+      signal.addEventListener('abort', cancel, { once: true });
+    }
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+function waitForVideo(video, event, signal, action) {
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const finish = (error) => {
+      clearTimeout(timer);
+      video[event] = null;
+      video.onerror = null;
+      signal?.removeEventListener('abort', cancel);
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+    const cancel = () => finish(signal.reason || new Error('evaluationCancelled'));
+    if (signal?.aborted) {
+      cancel();
+      return;
+    }
+    video[event] = () => finish();
+    video.onerror = () => finish(new Error('videoUnreadable'));
+    signal?.addEventListener('abort', cancel, { once: true });
+    timer = setTimeout(() => finish(new Error('videoReadTimeout')), 15000);
+    try {
+      action?.();
+    } catch (error) {
+      finish(error);
+    }
+  });
+}
 window.GestureEngine = {
   async ready() {
     window.SignVisionModels = await models();
@@ -385,36 +442,29 @@ window.GestureEngine = {
   async extract(blob) {
     return (await this.analyze(blob)).sequence;
   },
-  async analyze(blob) {
-    window.SignVisionModels = await models();
+  async analyze(blob, { signal } = {}) {
+    window.SignVisionModels = await abortable(models(), signal);
     const url = URL.createObjectURL(blob),
       video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
     video.preload = 'auto';
-    video.src = url;
     try {
-      await new Promise((resolve, reject) => {
-        video.onloadedmetadata = resolve;
-        video.onerror = () => reject(new Error('Не удалось открыть видео'));
+      await waitForVideo(video, 'onloadedmetadata', signal, () => {
+        video.src = url;
       });
       if (video.readyState < 2) {
-        await new Promise((resolve, reject) => {
-          video.onloadeddata = resolve;
-          video.onerror = () => reject(new Error('Не удалось прочитать видео'));
-        });
+        await waitForVideo(video, 'onloadeddata', signal);
       }
       let duration = video.duration;
       if (!Number.isFinite(duration)) {
-        video.currentTime = 1e10;
-        await new Promise((resolve, reject) => {
-          video.onseeked = resolve;
-          video.onerror = () => reject(new Error('Не удалось прочитать длительность видео'));
+        await waitForVideo(video, 'onseeked', signal, () => {
+          video.currentTime = 1e10;
         });
         duration = video.currentTime;
       }
       if (!Number.isFinite(duration) || duration <= 0) {
-        throw new Error('Не удалось прочитать длительность видео');
+        throw new Error('videoDurationUnreadable');
       }
       if (duration > 8.25) {
         throw new Error('videoTooLong');
@@ -437,12 +487,13 @@ window.GestureEngine = {
       let lastPose = null,
         poseMisses = 0;
       for (let i = 0; i < count; i++) {
+        if (signal?.aborted) {
+          throw signal.reason || new Error('evaluationCancelled');
+        }
         const time = Math.min(duration - 0.001, i / CLIP_FPS);
         if (Math.abs(video.currentTime - time) > 0.001) {
-          video.currentTime = time;
-          await new Promise((resolve, reject) => {
-            video.onseeked = resolve;
-            video.onerror = () => reject(new Error('Не удалось прочитать кадр'));
+          await waitForVideo(video, 'onseeked', signal, () => {
+            video.currentTime = time;
           });
         }
         context.drawImage(video, 0, 0, capture.width, capture.height);

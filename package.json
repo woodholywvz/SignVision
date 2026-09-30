@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node site/build.mjs",
-    "test": "node site/build.mjs && node --test tests/site.test.mjs tests/site-tracking.test.cjs tests/site-account.test.mjs",
+    "test": "node site/build.mjs && node --test tests/site.test.mjs tests/site-tracking.test.cjs tests/site-evaluation.test.cjs tests/site-account.test.mjs",
     "format": "prettier --write \"site/**/*.{js,mjs,html,css,json}\" \"static/**/*.{js,html,css}\" \"tests/**/*.{js,mjs,cjs}\" \"db/**/*.ts\" \"*.{json,ts,mjs}\"",
     "format:check": "prettier --check \"site/**/*.{js,mjs,html,css,json}\" \"static/**/*.{js,html,css}\" \"tests/**/*.{js,mjs,cjs}\" \"db/**/*.ts\" \"*.{json,ts,mjs}\"",
     "lint:js": "eslint site static tests eslint.config.mjs",

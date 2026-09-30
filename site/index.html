@@ -593,7 +593,7 @@
             <div>
               <h2 data-i18n="evalChooseTitle">Выберите видео для проверки</h2>
               <p data-i18n="evalChooseHelp">
-                Затем укажите фразу для каждого файла. До 30 видео за один раз.
+                Укажите фразу для каждого файла. До 30 видео, каждый до 8 секунд. MP4 или WebM.
               </p>
             </div>
             <label class="file-button button outline"
@@ -601,7 +601,7 @@
               ><input
                 type="file"
                 id="evalFiles"
-                accept=".mp4,.webm,.mov,.avi"
+                accept="video/mp4,video/webm,.mov"
                 multiple
                 data-i18n-aria-label="chooseVideos"
                 aria-label="Выбрать видео"
@@ -610,8 +610,18 @@
           <div id="evalLabels"></div>
           <div class="eval-actions">
             <button id="evalButton" class="button primary" data-i18n="evaluate" disabled>
-              Проверить</button
-            ><span data-i18n="evaluationNotSaved">Эти видео не попадут в обучающие примеры.</span>
+              Проверить
+            </button>
+            <button
+              id="evalCancelButton"
+              type="button"
+              class="button outline"
+              data-i18n="evaluationCancel"
+              hidden
+            >
+              Остановить
+            </button>
+            <span data-i18n="evaluationNotSaved">Эти видео не попадут в обучающие примеры.</span>
           </div>
           <div id="evalResult" class="eval-result" aria-live="polite"></div>
         </section>
