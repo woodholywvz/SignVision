@@ -26,11 +26,13 @@ let resultState = { phase: 'waiting' },
   feedback = '',
   evalState = { phase: 'idle' };
 let evaluationController = null;
+let phraseDeletion = null;
 let busy = false,
   cameraStarting = false,
   cameraRequest = 0;
 let trackState = null;
 let configLoading = true;
+let catalogLoaded = false;
 let configError = null;
 let liveRequest = null;
 let live = false,
@@ -139,9 +141,79 @@ function renderCatalog() {
       const count = document.createElement('small');
       count.textContent = countText(counts[phrase.id] || 0, 'recording');
       card.append(number, title, count);
-      return card;
+      if (!window.SignVisionLearning?.isAdmin()) {
+        return card;
+      }
+      const row = document.createElement('div');
+      row.className = 'dictionary-row';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'button quiet dictionary-delete';
+      remove.textContent = t('deletePhrase');
+      remove.setAttribute('aria-label', t('deletePhraseNamed', { phrase: phraseName(phrase.id) }));
+      remove.disabled = !!phraseDeletion?.pending;
+      remove.onclick = () => {
+        phraseDeletion = { id: phrase.id, name: phraseName(phrase.id), pending: false, error: '' };
+        $('phraseDeleteStatus').textContent = '';
+        renderPhraseDeletion();
+        $('confirmDeletePhraseButton').focus();
+      };
+      row.append(card, remove);
+      return row;
     }),
   );
+  renderPhraseDeletion();
+}
+function renderPhraseDeletion() {
+  $('phraseDeletePrompt').hidden = !phraseDeletion || !window.SignVisionLearning?.isAdmin();
+  if (!phraseDeletion) {
+    return;
+  }
+  $('phraseDeleteTitle').textContent = t('confirmDeletePhrase', { phrase: phraseDeletion.name });
+  $('phraseDeleteError').textContent = phraseDeletion.error;
+  $('confirmDeletePhraseButton').disabled = phraseDeletion.pending;
+  $('confirmDeletePhraseButton').textContent = t(
+    phraseDeletion.pending ? 'deletingPhrase' : 'deletePhrase',
+  );
+  $('cancelDeletePhraseButton').disabled = phraseDeletion.pending;
+}
+async function deleteDictionaryPhrase() {
+  if (!phraseDeletion || phraseDeletion.pending || !window.SignVisionLearning?.isAdmin()) {
+    return;
+  }
+  const deletion = phraseDeletion;
+  deletion.pending = true;
+  deletion.error = '';
+  renderCatalog();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(t('phraseDeleteTimeout'))), 15000);
+  try {
+    const response = await fetch(`/api/admin/phrases/${encodeURIComponent(deletion.id)}`, {
+      method: 'DELETE',
+      headers: { 'Accept-Language': locale },
+      signal: controller.signal,
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || t('requestFailed'));
+    }
+    phrases = data.phrases;
+    counts = data.counts;
+    phraseDeletion = null;
+    applyLocale();
+    renderCatalog();
+    $('phraseDeleteStatus').textContent = t('phraseDeleted', { phrase: deletion.name });
+    await Promise.allSettled([
+      window.SignVisionLearning.refreshLessons(),
+      window.SignVisionLearning.loadAdmin(),
+    ]);
+  } catch (error) {
+    deletion.pending = false;
+    deletion.error = error.message;
+    renderCatalog();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 function renderHomeStatus() {
   const ready = Object.values(counts).some(Boolean);
@@ -164,7 +236,7 @@ function renderHomeStatus() {
 }
 function renderResult() {
   const { prediction, error } = resultState;
-  const noExamples = phrases.length > 0 && !Object.values(counts).some(Boolean);
+  const noExamples = catalogLoaded && !Object.values(counts).some(Boolean);
   const phase = resultState.phase === 'waiting' && noExamples ? 'empty' : resultState.phase;
   $('result').classList.toggle('is-unknown', phase === 'unknown' || phase === 'error');
   $('result').classList.toggle('is-tentative', phase === 'tentative');
@@ -345,7 +417,7 @@ function applyLocale() {
   document
     .querySelectorAll('#evalLabels select')
     .forEach((select) => options(select, true, select.value));
-  if (phrases.length) {
+  if (catalogLoaded) {
     renderCatalog();
   } else {
     $('datasetStatus').textContent = t('loadingDataset');
@@ -387,6 +459,7 @@ async function refresh() {
     const config = await response.json();
     phrases = config.phrases;
     counts = config.counts;
+    catalogLoaded = true;
     configError = null;
     applyLocale();
   } catch (error) {
@@ -414,7 +487,7 @@ function renderControls() {
     busy ||
     recording ||
     cameraStarting ||
-    (phrases.length > 0 && !Object.values(counts).some(Boolean));
+    (catalogLoaded && !Object.values(counts).some(Boolean));
   $('liveButton').setAttribute('aria-pressed', String(live));
   $('liveButton').textContent = t(
     configLoading && !live ? 'loadingReferences' : live ? 'stopLive' : 'startLive',
@@ -578,6 +651,14 @@ window.addEventListener('popstate', () =>
   setPanel(new URLSearchParams(location.search).get('tab') || 'home', true),
 );
 $('phraseSelect').addEventListener('change', renderCatalog);
+$('confirmDeletePhraseButton').addEventListener('click', deleteDictionaryPhrase);
+$('cancelDeletePhraseButton').addEventListener('click', () => {
+  if (phraseDeletion?.pending) {
+    return;
+  }
+  phraseDeletion = null;
+  renderCatalog();
+});
 $('newPhraseForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const button = $('addPhraseButton');

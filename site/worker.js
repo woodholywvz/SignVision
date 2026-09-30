@@ -50,8 +50,9 @@ function missingHandsPrediction(frames) {
 
 async function samples(bucket, catalog) {
   const ids = phraseIds(catalog);
+  const catalogKey = catalog.map((phrase) => phrase.id).join('|');
   const cached = sampleCache.get(bucket);
-  if (cached && Date.now() - cached.at < 10000) {
+  if (cached && cached.catalogKey === catalogKey && Date.now() - cached.at < 10000) {
     return cached.items.filter((item) => ids.has(item.phrase_id));
   }
   const found = [];
@@ -70,7 +71,7 @@ async function samples(bucket, catalog) {
             return null;
           }
           const sample = await response.json();
-          if (typeof sample.phrase_id === 'string' && validSequence(sample.sequence)) {
+          if (ids.has(sample.phrase_id) && validSequence(sample.sequence)) {
             return {
               ...sample,
               created_at: Number.isFinite(sample.created_at)
@@ -92,7 +93,7 @@ async function samples(bucket, catalog) {
     }
     cursor = listed.truncated ? listed.cursor : null;
   } while (cursor && found.length < MAX_SAMPLES);
-  sampleCache.set(bucket, { at: Date.now(), items: found });
+  sampleCache.set(bucket, { at: Date.now(), items: found, catalogKey });
   return found.filter((item) => ids.has(item.phrase_id));
 }
 function counts(items, catalog) {
@@ -539,6 +540,21 @@ export default {
         response.headers.set('set-cookie', result.cookie);
         return response;
       }
+      if (path === '/api/admin/phrases/archived' && request.method === 'GET') {
+        await requireAdmin(request, env.DB);
+        return json({
+          phrases: (await phraseCatalog(env.DB, true)).filter(
+            (phrase) => phrase.archived_at !== null,
+          ),
+        });
+      }
+      const phraseAdmin = path.match(/^\/api\/admin\/phrases\/([a-z0-9_]+)(\/restore)?$/);
+      if (phraseAdmin && !phraseAdmin[2] && request.method === 'DELETE') {
+        return json(await archivePhrase(request, env, phraseAdmin[1]));
+      }
+      if (phraseAdmin && phraseAdmin[2] && request.method === 'POST') {
+        return json(await restorePhrase(request, env, phraseAdmin[1]));
+      }
       if (path === '/api/lessons' && request.method === 'GET') {
         if (!env.DB) {
           throw new ApiError('Уроки временно недоступны.', 503);
@@ -676,7 +692,11 @@ export default {
           httpMetadata: { contentType: 'application/json' },
         });
         existing.push({ ...saved, key, sample_id: id });
-        sampleCache.set(env.BUCKET, { at: Date.now(), items: existing });
+        sampleCache.set(env.BUCKET, {
+          at: Date.now(),
+          items: existing,
+          catalogKey: catalog.map((phrase) => phrase.id).join('|'),
+        });
         return json({ sample_id: id, frames: trimmed.length, counts: counts(existing, catalog) });
       }
       if (path === '/api/recognize') {

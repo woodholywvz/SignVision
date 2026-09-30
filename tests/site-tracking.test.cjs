@@ -259,6 +259,7 @@ test('the result card shows advice for recorded, unknown, and waiting prediction
     phrases: [],
     counts: {},
     live: false,
+    catalogLoaded: false,
     window: {},
     t: (key) => key,
     phraseName: (id) => id,

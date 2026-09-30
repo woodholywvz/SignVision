@@ -357,6 +357,43 @@
               </form>
             </details>
             <div id="phraseGrid" class="phrase-list"></div>
+            <section
+              id="phraseDeletePrompt"
+              class="dictionary-delete-prompt"
+              aria-labelledby="phraseDeleteTitle"
+              hidden
+            >
+              <h3 id="phraseDeleteTitle"></h3>
+              <p data-i18n="deletePhraseHint">
+                Фраза исчезнет из словаря, перевода и уроков. Эталоны и прогресс сохранятся — фразу
+                можно восстановить ниже.
+              </p>
+              <p id="phraseDeleteError" class="admin-error" role="alert"></p>
+              <div class="dictionary-actions">
+                <button
+                  id="confirmDeletePhraseButton"
+                  type="button"
+                  class="button danger"
+                  data-i18n="deletePhrase"
+                >
+                  Удалить фразу
+                </button>
+                <button
+                  id="cancelDeletePhraseButton"
+                  type="button"
+                  class="button outline"
+                  data-i18n="cancelDeletePhrase"
+                >
+                  Отмена
+                </button>
+              </div>
+            </section>
+            <p id="phraseDeleteStatus" class="muted" role="status" aria-live="polite"></p>
+            <details id="archivedPhraseSection" class="dictionary-archive" hidden>
+              <summary data-i18n="archivedPhrases">Удалённые фразы</summary>
+              <div id="archivedPhraseList"></div>
+              <p id="phraseRestoreStatus" class="muted" role="status" aria-live="polite"></p>
+            </details>
           </section>
           <section class="sample-panel">
             <h2 data-i18n="addExample">Добавить пример</h2>

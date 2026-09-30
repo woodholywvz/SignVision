@@ -22,6 +22,8 @@
     usersError: '',
     samples: [],
     samplesError: '',
+    archivedPhrases: [],
+    archivedPhrasesError: '',
     practicePhrase: null,
   };
   let editorPhrase = null;
@@ -127,9 +129,58 @@
     document.querySelector('.sample-panel').hidden = !admin;
     $('phraseCreate').hidden = !admin;
     $('datasetReadOnly').hidden = admin;
+    $('archivedPhraseSection').hidden = !admin;
     $('useRecordingButton').hidden = !admin || !clip;
     renderHomeStatus();
     renderControls();
+    if (!configLoading) {
+      renderCatalog();
+    }
+    renderArchivedPhrases();
+  }
+  function renderArchivedPhrases() {
+    const list = $('archivedPhraseList');
+    list.replaceChildren();
+    if (!isAdmin()) {
+      return;
+    }
+    if (state.archivedPhrasesError) {
+      list.append(element('p', 'admin-error', state.archivedPhrasesError));
+      return;
+    }
+    if (!state.archivedPhrases.length) {
+      list.append(element('p', 'muted', t('noArchivedPhrases')));
+      return;
+    }
+    state.archivedPhrases.forEach((phrase) => {
+      const row = element('div', 'admin-row');
+      const name = locale === 'en' ? phrase.en : phrase.text;
+      const action = element('button', 'button outline', t('restorePhrase'));
+      action.type = 'button';
+      action.setAttribute('aria-label', t('restorePhraseNamed', { phrase: name }));
+      action.onclick = async () => {
+        if (action.disabled) {
+          return;
+        }
+        action.disabled = true;
+        try {
+          await api(`/api/admin/phrases/${encodeURIComponent(phrase.id)}/restore`, {});
+          state.archivedPhrases = state.archivedPhrases.filter((item) => item.id !== phrase.id);
+          renderArchivedPhrases();
+          const updated = await Promise.allSettled([refresh(), refreshLessons(), loadAdmin()]);
+          $('phraseRestoreStatus').textContent = t('phraseRestored', { phrase: name });
+          const failed = updated.find((result) => result.status === 'rejected');
+          if (failed) {
+            $('phraseRestoreStatus').textContent += ' ' + failed.reason.message;
+          }
+        } catch (error) {
+          action.disabled = false;
+          $('phraseRestoreStatus').textContent = error.message;
+        }
+      };
+      row.append(element('strong', 'admin-row-text', name), action);
+      list.append(row);
+    });
   }
   function renderHomeLessons() {
     const list = $('homeLessonList');
@@ -494,6 +545,7 @@
       renderAdmin();
     }
     renderPracticeNotice();
+    renderArchivedPhrases();
     renderResult();
   }
   async function refreshLessons() {
@@ -506,6 +558,12 @@
         state.lessons.find((item) => item.available)?.phrase_id ||
         state.lessons[0]?.phrase_id ||
         null;
+    }
+    if (
+      state.practicePhrase &&
+      !state.lessons.some((item) => item.phrase_id === state.practicePhrase)
+    ) {
+      state.practicePhrase = null;
     }
     renderLessons();
     renderHomeLessons();
@@ -520,9 +578,10 @@
     state.usersLoading = true;
     state.usersError = '';
     renderAdmin();
-    const [users, samples] = await Promise.allSettled([
+    const [users, samples, archived] = await Promise.allSettled([
       getJson('/api/admin/users'),
       getJson('/api/admin/samples'),
+      getJson('/api/admin/phrases/archived'),
     ]);
     state.usersLoading = false;
     if (users.status === 'fulfilled') {
@@ -539,6 +598,9 @@
       state.samples = [];
       state.samplesError = samples.reason.message;
     }
+    state.archivedPhrases = archived.status === 'fulfilled' ? archived.value.phrases : [];
+    state.archivedPhrasesError = archived.status === 'fulfilled' ? '' : archived.reason.message;
+    renderArchivedPhrases();
     renderAdmin();
   }
   async function selectLesson(id, markStarted) {
@@ -711,7 +773,7 @@
       return state.practicePhrase;
     },
     onPanel(name) {
-      if (name === 'admin') {
+      if (name === 'admin' || (name === 'dataset' && isAdmin())) {
         loadAdmin().catch((error) => setFeedback(error.message, true));
       }
       if (name === 'lessons') {

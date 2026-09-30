@@ -12,6 +12,115 @@ const sequence = Array.from({ length: 12 }, () => {
 const call = async (env, path, data, user = admin, method) =>
   worker.fetch(request(path, data, user, method), env);
 
+for (const kind of ['builtin', 'custom']) {
+  test(`admins can remove and restore a ${kind} dictionary phrase without losing references or progress`, async () => {
+    const env = environment();
+    await call(env, '/api/register', { display_name: 'Student' }, student);
+    const id =
+      kind === 'builtin'
+        ? 'privet'
+        : (await (await call(env, '/api/admin/phrases', { text: 'Доброе утро' })).json()).phrase.id;
+    await call(env, `/api/admin/lessons/${id}`, { instructions_ru: 'Повторите жест.' });
+    const saved = await (
+      await call(env, '/api/samples', { phrase_id: id, sequence, duration_s: 2 })
+    ).json();
+    const sampleKey = `samples/${id}/${saved.sample_id}.json`;
+    const sampleBefore = await (await env.BUCKET.get(sampleKey)).json();
+    const meBefore = await (await call(env, '/api/me', undefined, student)).json();
+    const practiced = await (
+      await call(env, `/api/lessons/${id}/practice`, { sequence }, student)
+    ).json();
+    assert.equal(practiced.completed, true);
+    const totalBefore = (await (await call(env, '/api/lessons', undefined, student)).json()).total;
+    assert.equal(
+      (await call(env, `/api/admin/phrases/${id}`, undefined, null, 'DELETE')).status,
+      401,
+    );
+    assert.equal(
+      (await call(env, `/api/admin/phrases/${id}`, undefined, student, 'DELETE')).status,
+      403,
+    );
+    const removed = await (
+      await call(env, `/api/admin/phrases/${id}`, undefined, admin, 'DELETE')
+    ).json();
+    assert.equal(removed.removed, id);
+    assert.equal(
+      removed.phrases.some((phrase) => phrase.id === id),
+      false,
+    );
+    assert.equal(Object.hasOwn(removed.counts, id), false);
+    assert.deepEqual(await (await env.BUCKET.get(sampleKey)).json(), sampleBefore);
+    const config = await (await call(env, '/api/config')).json();
+    assert.equal(
+      config.phrases.some((phrase) => phrase.id === id),
+      false,
+    );
+    const lessons = await (await call(env, '/api/lessons', undefined, student)).json();
+    assert.equal(lessons.total, totalBefore - 1);
+    assert.equal(
+      lessons.lessons.some((lesson) => lesson.phrase_id === id),
+      false,
+    );
+    assert.equal(lessons.completed, 0);
+    for (const path of ['/api/recognize', '/api/live']) {
+      const result = await (await call(env, path, { sequence, duration_s: 2 })).json();
+      assert.equal(result.phrase_id, null);
+      assert.equal(result.state, 'empty_dataset');
+    }
+    assert.equal((await call(env, '/api/samples', { phrase_id: id, sequence })).status, 400);
+    assert.equal((await call(env, '/api/admin/phrases/archived', undefined, student)).status, 403);
+    const archived = await (await call(env, '/api/admin/phrases/archived')).json();
+    assert.equal(archived.phrases.length, 1);
+    assert.equal(archived.phrases[0].id, id);
+    assert.ok(archived.phrases[0].archived_at > 0);
+    assert.equal(
+      (await call(env, '/api/admin/phrases', { text: archived.phrases[0].text })).status,
+      409,
+    );
+    assert.equal((await call(env, `/api/admin/phrases/${id}/restore`, {}, student)).status, 403);
+    assert.equal((await call(env, `/api/admin/phrases/${id}/restore`, {})).status, 200);
+    const restored = await (await call(env, '/api/config')).json();
+    assert.equal(restored.counts[id], 1);
+    assert.equal(restored.phrases.length, totalBefore);
+    const restoredLessons = await (await call(env, '/api/lessons', undefined, student)).json();
+    assert.equal(restoredLessons.completed, 1);
+    assert.equal(
+      restoredLessons.lessons.find((lesson) => lesson.phrase_id === id).instructions_ru,
+      'Повторите жест.',
+    );
+    assert.equal((await (await call(env, '/api/recognize', { sequence })).json()).phrase_id, id);
+    assert.deepEqual(
+      (await (await call(env, '/api/me', undefined, student)).json()).account,
+      meBefore.account,
+    );
+    assert.equal((await (await call(env, '/api/admin/phrases/archived')).json()).phrases.length, 0);
+  });
+}
+
+test('archived references do not exhaust the active dataset limit or hide newly added phrases', async () => {
+  const env = environment();
+  for (let i = 0; i < 300; i++) {
+    await env.BUCKET.put(
+      `samples/privet/${i}.json`,
+      JSON.stringify({ phrase_id: 'privet', sequence }),
+    );
+  }
+  await call(env, '/api/admin/phrases/privet', undefined, admin, 'DELETE');
+  const phrase = (await (await call(env, '/api/admin/phrases', { text: 'Добрый вечер' })).json())
+    .phrase;
+  const saved = await call(env, '/api/samples', { phrase_id: phrase.id, sequence });
+  assert.equal(saved.status, 200);
+  // Force a reload with another catalog to verify persisted samples, not the upload cache.
+  await call(env, '/api/admin/phrases/spasibo', undefined, admin, 'DELETE');
+  const config = await (await call(env, '/api/config')).json();
+  assert.equal(config.counts[phrase.id], 1);
+  assert.equal(
+    (await (await call(env, '/api/recognize', { sequence })).json()).phrase_id,
+    phrase.id,
+  );
+  assert.equal((await env.BUCKET.list({ prefix: 'samples/privet/' })).objects.length, 300);
+});
+
 test('email login preserves legacy hashes under the production PBKDF2 iteration limit', async (t) => {
   const originalDeriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
   t.mock.method(crypto.subtle, 'deriveBits', (algorithm, ...args) => {

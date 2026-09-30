@@ -499,6 +499,47 @@ h2 {
   display: flex;
   flex-direction: column;
 }
+.dictionary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}
+.dictionary-row .phrase-card {
+  flex: 1;
+  min-width: 0;
+  border-top: 0;
+  flex-wrap: wrap;
+}
+.dictionary-delete {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 7px;
+}
+.dictionary-delete-prompt {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.dictionary-delete-prompt p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.dictionary-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dictionary-archive {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.dictionary-archive summary {
+  cursor: pointer;
+  font-size: 13px;
+}
 .phrase-card {
   background: none;
   border: 0;

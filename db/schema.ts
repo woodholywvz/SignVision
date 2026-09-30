@@ -27,6 +27,14 @@ export const accounts = sqliteTable('accounts', {
   createdAt: integer('created_at').notNull(),
 });
 
+export const archivedPhrases = sqliteTable('archived_phrases', {
+  phraseId: text('phrase_id').primaryKey(),
+  archivedAt: integer('archived_at').notNull(),
+  archivedBy: text('archived_by')
+    .notNull()
+    .references(() => accounts.id),
+});
+
 export const emailCredentials = sqliteTable(
   'email_credentials',
   {

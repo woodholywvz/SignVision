@@ -28,6 +28,8 @@ const API_ERROR_EN = {
   'Название фразы должно быть не длиннее 80 символов.':
     'Phrase names must be 80 characters or shorter.',
   'Такая фраза уже существует.': 'This phrase already exists.',
+  'Такая фраза есть в удалённых. Восстановите её в словаре.':
+    'This phrase was deleted. Restore it in the dictionary.',
   'Достигнут лимит новых фраз.': 'The custom phrase limit has been reached.',
   'Профили временно недоступны.': 'Profiles are temporarily unavailable.',
   'Уроки временно недоступны.': 'Lessons are temporarily unavailable.',
