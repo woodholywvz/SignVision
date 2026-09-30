@@ -394,6 +394,7 @@ async function startCamera() {
     await $('preview').play();
     stream.getVideoTracks()[0].addEventListener('ended', stopCamera);
     setFeedback('');
+    window.SignVisionSounds?.play('camera');
     return true;
   } catch (error) {
     stopCamera();
@@ -405,6 +406,7 @@ async function startCamera() {
         UnsupportedCamera: 'cameraUnsupported',
       }[error.name] || 'cameraFailed';
     setFeedback(t(key), true);
+    window.SignVisionSounds?.play('cameraError');
     return false;
   } finally {
     cameraStarting = false;
